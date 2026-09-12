@@ -4,6 +4,7 @@ import http from 'node:http';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createApp } from '../server/http.mjs';
 import { solve, replay } from '../shared/game.mjs';
 
@@ -21,14 +22,14 @@ async function modelFixture(t, behavior = {}) {
         content = behavior.invalidGeneration || (behavior.repairOnce && requests.filter(r => r.messages[0].content.includes('design Sokoban')).length === 1) ? { rows: ['invalid'] } : { rows: skeleton };
       } else {
         const board = JSON.parse(body.messages[1].content).rows;
-        content = { actions: behavior.invalidPlayer ? 'WIN' : behavior.badPlayer ? 'U' : solve(board).actions };
+        content = behavior.nullPlayer ? null : { actions: behavior.invalidPlayer ? 'WIN' : behavior.badPlayer ? 'U' : solve(board).actions };
       }
       res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }));
     };
     if (generation && behavior.hold) held.push(respond); else respond();
   });
   await new Promise(r => provider.listen(0, '127.0.0.1', r));
-  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-model-test-')), env: { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'test-double', MODEL_API_KEY: 'local-test-only' } });
+  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-model-test-')), brainOptions: { stepMs: 0 }, env: { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'test-double', MODEL_API_KEY: 'local-test-only' } });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const release = () => { behavior.hold = false; held.splice(0).forEach(r => r()); };
@@ -74,6 +75,15 @@ test('malformed model moves are contestant failure, not a free voided match', as
   assert.ok(view.sides.every(s => s.agent.status === 'failed' && s.agent.score === -20));
 });
 
+test('JSON null from the contestant is invalid play, never an infrastructure exemption', async t => {
+  const f = await modelFixture(t, { nullPlayer: true }), a = await f.client('NullA'), b = await f.client('NullB');
+  await f.arena.idle();
+  const m = await a.call('/api/challenges', { opponentId: b.pet.id }); await f.arena.idle();
+  const view = await a.call(`/api/challenges/${m.id}`);
+  assert.equal(view.status, 'active');
+  assert.ok(view.sides.every(s => s.agent.status === 'failed' && s.agent.score === -20));
+});
+
 test('challenge returns while model generation is held, locking cached levels without waiting', async t => {
   const f = await modelFixture(t, { hold: true }), a = await f.client('InstantA'), b = await f.client('InstantB');
   const result = await Promise.race([
@@ -87,6 +97,23 @@ test('challenge returns while model generation is held, locking cached levels wi
   const after = await a.call(`/api/challenges/${result.id}`);
   assert.equal(after.sides.find(s => s.own).level.id, b.pet.level.id);
   assert.notEqual(f.arena.s.pets[b.pet.id].readyId, b.pet.level.id);
+});
+
+test('both AI contestants reach provider HTTP while background preparation remains blocked', async t => {
+  const f = await modelFixture(t, { hold: true }), a = await f.client('NoWaitA'), b = await f.client('NoWaitB');
+  const waitFor = async (condition, failure) => {
+    const deadline = Date.now() + 2000;
+    while (!condition()) { assert.ok(Date.now() < deadline, failure); await delay(10); }
+  };
+  await waitFor(() => f.held.length === 2 || (f.held.length === 1 && f.brain.preparationQueue?.length === 1), 'both background preparations must have requested service');
+  const match = await a.call('/api/challenges', { opponentId: b.pet.id });
+  await waitFor(() => f.requests.filter(r => r.messages[0].content.startsWith('Play Sokoban')).length === 2, 'two contestant HTTP requests should start before any generation is released');
+  assert.equal(f.behavior.hold, true);
+  assert.equal(f.held.length, 1, 'only one background request occupies provider concurrency');
+  assert.ok(f.arena.s.pets[a.pet.id].preparing && f.arena.s.pets[b.pet.id].preparing);
+  assert.equal(match.sides.find(s => s.own).level.id, b.pet.level.id);
+  f.release(); await f.arena.idle();
+  assert.ok((await a.call(`/api/challenges/${match.id}`)).sides.every(s => s.agent.status === 'cleared'));
 });
 
 test('bad model generation keeps old verified level; no silent algorithm fallback labelled model', async t => {

@@ -4,13 +4,13 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#263e32">
   <title>PetRival · 宠物擂台</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/pet-editor.css"><link rel="stylesheet" href="/duel.css">
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
   <header class="topbar"><a href="/" class="brand"><span class="brand-mark">P<span>R</span></span><span>PETRIVAL<small>宠物擂台 · 出题，也是战斗</small></span></a><div class="top-right"><span class="pill" id="mode">连接中</span><span class="live-dot"></span><span>早期试玩版</span></div></header>
   <main>
-    <section class="hero"><div><div class="eyebrow">A LITTLE PET. A WORTHY RIVAL.</div><h1>小小宠物，<br>大有<span>对手。</span></h1><p>让宠物备好一道题。带上你的智慧，<br>一起向别人的宠物发起挑战。</p><div class="hero-tags"><span>提前备题</span><span>人宠应战</span><span>积分争榜</span></div></div><div class="garden" aria-hidden="true"><span class="sun"></span><span class="cloud one"></span><span class="cloud two"></span><div class="garden-sign">NEXT CHALLENGE<br><b>READY!</b></div><div class="garden-pet sprout big"><i></i><b></b></div><div class="garden-pet fox big"><i></i><b></b></div><span class="garden-box">×</span><span class="flower f1">✿</span><span class="flower f2">✿</span><span class="grass g1">⌁</span><span class="grass g2">⌁</span><div class="garden-caption">守擂关已备好，随时来战。</div></div></section>
+    <section class="hero"><div><div class="eyebrow">A LITTLE PET. A WORTHY RIVAL.</div><h1>小小宠物，<br>大有<span>对手。</span></h1><p>让宠物备好一道题。带上你的智慧，<br>一起向别人的宠物发起挑战。</p><div class="hero-tags"><span>提前备题</span><span>人宠应战</span><span>积分争榜</span></div></div><div class="garden" aria-hidden="true"><span class="sun"></span><span class="cloud one"></span><span class="cloud two"></span><div class="garden-sign">NEXT CHALLENGE<br><b>READY!</b></div><div class="hero-pixel" id="hero-pet"></div><div class="garden-pet fox big"><i></i><b></b></div><span class="garden-box">×</span><span class="flower f1">✿</span><span class="flower f2">✿</span><span class="grass g1">⌁</span><span class="grass g2">⌁</span><div class="garden-caption">守擂关已备好，随时来战。</div></div></section>
     <div id="notice" class="notice" role="status" hidden></div>
     <div class="layout"><div class="main-column">
       <section class="panel" id="my-pet"><div class="empty">正在打开宠物擂台…</div></section>
@@ -22,6 +22,27 @@
     </aside></div>
     <footer>PetRival <span>·</span> A small world for clever companions.<span class="footer-right">独立游戏 / 本地原型</span></footer>
   </main>
-  <dialog id="game-dialog"><div class="dialog-top"><div><span class="eyebrow" id="game-kind">挑战</span><h2 id="game-title"></h2></div><button class="icon-button" id="close-game" aria-label="关闭游戏">×</button></div><div class="game-content"><div class="board-column"><div class="game-stats"><span id="game-status">准备出发</span><span id="steps">0 步</span><strong id="clock">03:00</strong></div><div id="board" class="board" role="group" aria-label="推箱子棋盘"></div><div class="controls"><button id="undo">撤销 Z</button><button id="restart">重来 R</button><button id="give-up" class="danger">认输</button></div><div class="dpad" aria-label="方向控制"><button data-dir="U" aria-label="向上">↑</button><div><button data-dir="L" aria-label="向左">←</button><button data-dir="D" aria-label="向下">↓</button><button data-dir="R" aria-label="向右">→</button></div></div><p class="fine">方向键 / WASD 移动，将两个箱子推上花朵目标。撤销、重来不重置计时。</p></div><div class="game-side"><div id="agent-card"></div><div id="result-card"></div><div class="tip"><b>人宠搭档，小试身手</b><p>宠物独立挑战同一张地图。你结束挑战后，可以查看它的路线回放。</p></div></div></div></dialog>
+  <dialog id="game-dialog">
+    <div class="dialog-top"><div><span class="eyebrow" id="game-kind">挑战</span><h2 id="game-title"></h2></div><button class="icon-button" id="close-game" aria-label="关闭游戏">×</button></div>
+    <div class="duel-heading"><span>同一道题，人宠一起出发</span><span>各自操作 · 独立计分</span></div>
+    <div class="game-content">
+      <section class="agent-column" aria-label="左侧 AI 棋盘">
+        <div class="lane-heading"><h3 id="agent-name">小汤圆 · AI</h3><span class="badge" id="agent-model">DeepSeek Pro</span></div>
+        <div class="game-stats"><span id="agent-status">准备出发</span><span id="agent-steps">0 步</span><strong id="agent-clock">00:00</strong></div>
+        <div id="agent-board" class="board" role="group" aria-label="AI 推箱子棋盘"></div>
+        <p id="agent-note" class="agent-note" role="status">宠物独立思考时，你可以先玩右边。</p>
+        <div class="lane-footnote">AI 的每一步都由游戏规则执行和验证</div>
+      </section>
+      <section class="board-column" aria-label="右侧真人棋盘">
+        <div class="lane-heading"><h3>你 · 真人</h3><span class="badge ready">方向键 / WASD</span></div>
+        <div class="game-stats"><span id="game-status">准备出发</span><span id="steps">0 步</span><strong id="clock">03:00</strong></div>
+        <div id="board" class="board" role="group" aria-label="真人推箱子棋盘"></div>
+        <div class="controls"><button id="undo">撤销 Z</button><button id="restart">重来 R</button><button id="give-up" class="danger">认输</button></div>
+        <div class="dpad" aria-label="方向控制"><button data-dir="U" aria-label="向上">↑</button><div><button data-dir="L" aria-label="向左">←</button><button data-dir="D" aria-label="向下">↓</button><button data-dir="R" aria-label="向右">→</button></div></div>
+        <p class="fine">将两个箱子推上花朵。撤销、重来不重置计时。</p>
+      </section>
+    </div>
+    <div class="game-summary"><div id="agent-card"></div><div id="result-card"></div></div>
+  </dialog>
 </body>
 </html>

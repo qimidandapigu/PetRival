@@ -12,7 +12,11 @@ const files = {
   '/': ['public/index.html', 'text/html; charset=utf-8'],
   '/app.mjs': ['public/app.mjs', 'text/javascript; charset=utf-8'],
   '/style.css': ['public/style.css', 'text/css; charset=utf-8'],
+  '/duel.css': ['public/duel.css', 'text/css; charset=utf-8'],
   '/shared/game.mjs': ['shared/game.mjs', 'text/javascript; charset=utf-8'],
+  '/shared/pet.mjs': ['shared/pet.mjs', 'text/javascript; charset=utf-8'],
+  '/pet-editor.mjs': ['public/pet-editor.mjs', 'text/javascript; charset=utf-8'],
+  '/pet-editor.css': ['public/pet-editor.css', 'text/css; charset=utf-8'],
 };
 async function body(req) {
   let bytes = 0; const chunks = [];
@@ -28,8 +32,8 @@ async function body(req) {
   } catch { throw new ApiError(400, '需要 JSON 对象'); }
 }
 
-export function createApp({ dataDir = resolve(root, 'data'), env = process.env, now = Date.now } = {}) {
-  const jobs = new Jobs(2), brain = new PetBrain(jobs, env), store = new Store(dataDir), arena = new Arena(store, brain, { now });
+export function createApp({ dataDir = resolve(root, 'data'), env = process.env, now = Date.now, brainOptions = {} } = {}) {
+  const jobs = new Jobs(2), brain = new PetBrain(jobs, env, brainOptions), store = new Store(dataDir), arena = new Arena(store, brain, { now });
   const buckets = new Map();
   const rate = (key, max) => {
     const n = now(); let b = buckets.get(key);
@@ -49,7 +53,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
         const content = await readFile(resolve(root, file));
         res.writeHead(200, { 'Content-Type': type }); res.end(content); return;
       }
-      if (path === '/api/health' && req.method === 'GET') return json(200, { ok: true, game: 'PetRival', mode: brain.mode });
+      if (path === '/api/health' && req.method === 'GET') return json(200, { ok: true, game: 'PetRival', ...brain.info() });
       if (!path.startsWith('/api/')) throw new ApiError(404, '未找到页面');
       if (!['GET', 'POST'].includes(req.method)) throw new ApiError(405, '不支持此方法');
       const cookie = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('petrival='))?.slice(9);
@@ -71,6 +75,10 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (path === '/api/state' && req.method === 'GET') return json(200, arena.view(owner));
       const input = req.method === 'POST' ? await body(req) : {};
       if (path === '/api/pets' && req.method === 'POST') { arena.createPet(owner, input); return json(201, arena.view(owner)); }
+      if (path === '/api/pets/appearance' && req.method === 'POST') {
+        rate(`appearance:${owner}`, 20);
+        arena.updateAppearance(owner, input); return json(200, arena.view(owner));
+      }
       if (path === '/api/pets/prepare' && req.method === 'POST') {
         rate(`prepare:${owner}`, 2);
         const pet = arena.mine(owner); if (!pet) throw new ApiError(409, '请先领养宠物');
@@ -80,6 +88,12 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
         rate(`practice:${owner}`, 2);
         return json(200, await arena.practice(owner));
       }
+      if (path === '/api/practice/start' && req.method === 'POST') {
+        rate(`practice:${owner}`, 2);
+        return json(202, arena.startPractice(owner));
+      }
+      const practiceRoute = path.match(/^\/api\/practice\/([\w-]+)$/);
+      if (practiceRoute && req.method === 'GET') return json(200, arena.getPractice(owner, practiceRoute[1]));
       if (path === '/api/challenges' && req.method === 'POST') {
         rate(`challenge:${owner}`, 6);
         return json(201, arena.challenge(owner, input.opponentId));

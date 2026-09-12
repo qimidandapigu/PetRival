@@ -1,5 +1,7 @@
 # MVP 验收记录 · 2026-09-13
 
+这是原 MVP 的历史记录；DeepSeek Pro、左右同玩和像素外观的新增验收见 [新版记录](DEEPSEEK-PIXEL-ACCEPTANCE.md)。
+
 ## 交付边界
 
 - 新建独立私有仓库 FromNextWorld/PetRival，初始 main 只有 README。

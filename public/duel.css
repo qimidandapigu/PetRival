@@ -1,0 +1,25 @@
+/* Two independent boards stay side by side, including on compact screens. */
+#game-dialog{width:min(940px,97vw)}
+#game-dialog .dialog-top{padding:15px 24px}
+#game-dialog .board{width:min(100%,max(220px,calc(100vh - 390px)));margin-inline:auto}
+#game-dialog .dpad{display:flex;align-items:center;justify-content:center;margin-top:8px}
+#game-dialog.replay-mode .board-column{display:none}
+#game-dialog.replay-mode .game-content{grid-template-columns:minmax(0,420px);justify-content:center}
+.duel-heading{display:flex;justify-content:space-between;gap:12px;padding:15px 28px 0;font-size:11px;color:#879271}
+#game-dialog .game-content{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:26px;padding:18px 28px 12px}
+.lane-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px;margin-bottom:5px}
+.lane-heading h3{font-size:16px;margin:0}.lane-heading .badge{font-size:10px}
+.agent-column,.board-column{min-width:0;width:100%}
+.agent-column .board{border-color:#64818a;background:#64818a;box-shadow:0 5px #d8e2df}
+.agent-note{min-height:40px;font-size:12px;line-height:1.8;color:#577278;background:#edf3ef;border:1px solid #dce6df;border-radius:7px;padding:12px;margin-top:16px}
+.lane-footnote{font-size:10px;color:#8b9985;text-align:center}
+.game-summary{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;border-top:1px solid var(--line);padding:20px 28px}
+.game-summary #agent-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.game-summary .agent-block{margin:0}
+.game-summary .agent-heading{gap:9px}.game-summary .result{margin:0}.game-summary .result strong{font-size:26px}
+.pixel-pet{width:52px;height:52px;flex-shrink:0;image-rendering:pixelated;display:inline-block}
+.pixel-pet.tiny{width:32px;height:32px}.pixel-pet.small-pet{width:38px;height:38px}
+.pixel-pet.board-pet{width:90%;height:90%;margin:0;transform:none;z-index:2}
+.species-picker .pixel-pet{width:34px;height:34px}.species-picker label{gap:7px;padding:12px 8px}.species-picker{flex-wrap:wrap}
+.rival-card>.pixel-pet{margin:0 auto 12px;display:block}.pet-profile>.pixel-pet{width:68px;height:68px}
+.hero-pixel{position:absolute;bottom:82px;left:18%;z-index:2}.hero-pixel .pixel-pet{width:95px;height:95px}
+@media(max-width:760px){#game-dialog .game-content{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:14px 12px}.duel-heading{padding:12px 12px 0;font-size:9px}.lane-heading{align-items:flex-start;flex-direction:column;gap:5px;min-height:45px}.lane-heading h3{font-size:13px}.lane-heading .badge{font-size:8px}.game-stats{font-size:9px;gap:6px;flex-wrap:wrap}.game-stats strong{font-size:14px}.game-content .board{border-width:3px}.wall{border-top-width:3px;border-bottom-width:3px}.crate{border-width:2px;font-size:22px}.goal{font-size:20px}.agent-note{font-size:10px;padding:9px}.lane-footnote{font-size:9px}.controls{flex-wrap:wrap;gap:5px}.controls button{font-size:10px;padding:7px 4px}.game-summary{padding:14px 12px;grid-template-columns:1fr;gap:12px}.game-summary .agent-heading h3{font-size:12px}.species-picker label{min-width:calc(50% - 12px)}.species-picker .pixel-pet{width:30px;height:30px}}
