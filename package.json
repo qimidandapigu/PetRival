@@ -1,0 +1,14 @@
+{
+  "name": "petrival",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI pets prepare puzzles, humans and pets challenge rivals.",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "dev": "node --watch --env-file-if-exists=.env server/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}
