@@ -20,8 +20,16 @@ function notify(message, error = false) {
   clearTimeout(notify.timer); notify.timer = setTimeout(() => { n.hidden = true; }, 8000);
 }
 async function api(path, data) {
-  const res = await fetch(path, data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-  const body = await res.json(); if (!res.ok) throw new Error(body.error || '请求失败'); return body;
+  // A stalled progress read must release the polling lock. Never retry writes here.
+  const controller = data === undefined ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
+  try {
+    const res = await fetch(path, data === undefined ? { signal: controller.signal } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const body = await res.json(); if (!res.ok) throw new Error(body.error || '请求失败'); return body;
+  } catch (error) {
+    if (controller?.signal.aborted) throw new Error('读取超时');
+    throw error;
+  } finally { if (timer !== null) clearTimeout(timer); }
 }
 async function refresh() {
   if (refreshing) return; refreshing = true;
@@ -133,11 +141,17 @@ function drawAgent() {
   $('#agent-name').textContent = `${pet.name} · AI`;
   $('#agent-board').innerHTML = boardMarkup(game.level.rows, run?.actions || '', pet);
   $('#agent-steps').textContent = `${run?.steps || 0} 步`;
-  $('#agent-status').textContent = run ? status(run) : '等待一起出发';
-  $('#agent-note').textContent = run?.note || (run?.status === 'running' ? '独立思考中，你可以同时操作右边。' : '挑战时，宠物会在这里和你一起闯关。');
+  drawAgentFeedback(run);
   const elapsed = run?.status === 'running' && run.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
   $('#agent-clock').textContent = run ? duration(elapsed || 0) : '00:00';
   $('#agent-model').textContent = game.kind === 'replay' ? game.replayRun.model || method(game.replayRun.method) : run?.model || (state.mode === 'model' ? state.model || 'DeepSeek Pro' : '算法 AI');
+}
+function drawAgentFeedback(run) {
+  const waiting = game.kind !== 'replay' && run?.status === 'running' && (!run.actions?.length || run.note?.includes('重新思考'));
+  const elapsed = run?.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
+  $('#agent-status').textContent = game.syncError ? '进度连接中断' : !run ? '本次仅真人试玩' : waiting ? (run.actions?.length ? '重新规划路线' : '等待第一步') : run.status === 'running' ? '正在执行动作' : status(run);
+  $('#agent-note').classList.toggle('waiting', waiting && !game.syncError);
+  $('#agent-note').textContent = game.syncError || (waiting ? `${run.actions?.length ? '宠物正在重新规划路线' : '宠物正在准备路线，尚未返回第一步'} · 已用 ${duration(elapsed)}。${(run.method || state.mode) === 'model' ? 'DeepSeek 会先思考整段路线，再开始移动，可能需要一分钟以上。' : ''}你可以继续玩右边，思考时间也计入 3 分钟时限。` : run?.note || (!run ? '这是单人试玩。返回主页选择“和宠物一起试跑”，即可让 AI 同时闯关。' : '宠物正在独立闯关。'));
 }
 async function pollMatch() {
   if (pollingMatch || submitting || !game || (game.kind !== 'challenge' && !game.practiceId) || document.hidden) return;
@@ -146,12 +160,12 @@ async function pollMatch() {
     if (current.kind === 'challenge') {
       const previousMatch = current.match;
       const match = await api(`/api/challenges/${current.id}`);
-      if (game === current && current.match === previousMatch) { game.match = match; renderSide(); updateClock(); }
+      if (game === current && current.match === previousMatch) { game.syncError = null; game.match = match; renderSide(); updateClock(); }
     } else if (current.practiceAgent?.status === 'running') {
       const practice = await api(`/api/practice/${current.practiceId}`);
-      if (game === current) { game.practiceAgent = practice.run; drawAgent(); updateClock(); }
+      if (game === current) { game.syncError = null; game.practiceAgent = practice.run; drawAgent(); updateClock(); }
     }
-  } catch (e) { if (game === current) $('#agent-note').textContent = `连接暂时中断，正在重连：${e.message}`; }
+  } catch (e) { if (game === current) { game.syncError = `连接暂时中断，正在重连：${e.message}。当前显示的是上次收到的进度。`; drawAgent(); } }
   finally { pollingMatch = false; }
 }
 function drawBoard() {
@@ -222,8 +236,12 @@ function updateClock() {
   $('#clock').textContent = !run ? '不限时' : run.status === 'running' ? duration(run.deadline - Date.now() - clockOffset) : duration(run.elapsedMs || 0);
   if (run?.status === 'running' && run.deadline <= Date.now() + clockOffset) { $('#game-status').textContent = '时间到，等待服务端结算'; }
   const agent = game.kind === 'challenge' ? game.match.sides.find(s => s.own).agent : game.practiceAgent;
-  if (agent?.status === 'running' && agent.startedAt) $('#agent-clock').textContent = duration(Date.now() + clockOffset - agent.startedAt);
+  if (agent?.status === 'running' && agent.startedAt) {
+    $('#agent-clock').textContent = duration(Date.now() + clockOffset - agent.startedAt);
+    drawAgentFeedback(agent);
+  }
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { updateClock(); void pollMatch(); void refresh(); } });
 $('#refresh').addEventListener('click', refresh);
 $('#close-game').addEventListener('click', () => { $('#game-dialog').close(); clearInterval(replayTimer); game = null; });
 $('#game-dialog').addEventListener('cancel', () => { clearInterval(replayTimer); game = null; });

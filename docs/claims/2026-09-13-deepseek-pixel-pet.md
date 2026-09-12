@@ -16,3 +16,5 @@ Required behavior:
 Entrypoints: server/provider.mjs, server/arena.mjs, server/http.mjs, shared pixel data, public UI, .env.example, tests and docs.
 
 Validation: baseline tests; regression evidence for changed live visibility behavior; real HTTP identity/progress/import boundaries; simulated provider faults; actual DeepSeek generation and engine-validated play; browser side-by-side operation and editor import/export. Report source/tests/mock/live/browser/GitHub status separately. No public deployment or capacity claim.
+
+Follow-up: user reported a motionless AI. The exact challenged run completed in 14 steps / 65.645 seconds; whole-plan thinking was not distinguished clearly from movement. Show waiting/replanning/execution phases and elapsed time. Bound progress GET reads (including response bodies) to 10 seconds, release their polling lock on failure, preserve write semantics and refresh on visibility return. Regression tests cover stalled reads and recovery; a fresh real-browser DeepSeek practice completed in 20 steps / displayed 54 seconds. This changes visibility and reconnection, not model latency or thinking quality.
