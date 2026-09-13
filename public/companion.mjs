@@ -2,7 +2,7 @@ import { petMarkup } from '/shared/pet.mjs'; import { createWorldScene } from '/
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function createCompanionHub({ api, notify, refresh, onPlay }) {
+export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) {
   const root = document.querySelector('#companion-hub');
   const $ = selector => root.querySelector(selector);
   let state, petId, messages = [], busy = false, loading = false, failedRequest = null, skillsKey = '', profileKey = '', serverClockOffset = 0, latestClock = 0;
@@ -10,7 +10,7 @@ export function createCompanionHub({ api, notify, refresh, onPlay }) {
     <section class="panel pet-world" id="pet-world" aria-label="宠物生活的小院">
       <div class="world-heading"><div><span class="world-leaf" aria-hidden="true">✦</span><div><h2>晴风小院</h2><p>一间小屋，一段属于你们的日常</p></div></div><span id="world-time" class="world-time">小院正在醒来</span></div>
       <div class="world-stage"><canvas id="world-canvas" width="768" height="512" role="img" aria-label="像素田园：宠物在小屋、菜地、野餐区和池塘之间自主生活，可以在旁边和它聊天。"></canvas><div class="world-location-label"><span class="world-live-dot"></span><span id="world-live-state">等待搭档入住</span></div><div id="world-speech" class="world-speech" hidden></div><button type="button" id="world-chat-focus" class="world-chat-focus" aria-label="和正在小院里的宠物聊天">和它说句话 ↗</button></div>
-      <div class="world-pet-bar"><span id="world-avatar"></span><div class="world-pet-name"><b id="world-pet-name">你的小伙伴</b><span id="world-activity">领养后，小院就有了主人</span></div><div class="world-vitals"><label><span>活力 <b id="energy-value">—</b></span><progress id="energy-meter" max="100" value="0" aria-label="宠物活力"></progress></label><label><span>饱腹 <b id="satiety-value">—</b></span><progress id="satiety-meter" max="100" value="0" aria-label="宠物饱腹"></progress></label><label><span>心情 <b id="mood-value">—</b></span><progress id="mood-meter" max="100" value="0" aria-label="宠物心情"></progress></label></div></div>
+      <div class="world-pet-bar"><span id="world-avatar"></span><div class="world-pet-name"><b id="world-pet-name">你的小伙伴</b><span id="world-activity">领养后，小院就有了主人</span><button type="button" id="world-edit-pet">换外观</button></div><div class="world-vitals"><label><span>活力 <b id="energy-value">—</b></span><progress id="energy-meter" max="100" value="0" aria-label="宠物活力"></progress></label><label><span>饱腹 <b id="satiety-value">—</b></span><progress id="satiety-meter" max="100" value="0" aria-label="宠物饱腹"></progress></label><label><span>心情 <b id="mood-value">—</b></span><progress id="mood-meter" max="100" value="0" aria-label="宠物心情"></progress></label></div></div>
       <p class="world-companionship">它有自己的日常，也会把你的话放在心上。</p>
       <div class="world-footer"><span id="world-recent">小院里的一天，正慢慢展开。</span><span id="world-crops">小小菜地，慢慢生长</span></div>
     </section>
@@ -36,6 +36,7 @@ export function createCompanionHub({ api, notify, refresh, onPlay }) {
     </section>
     `;
 
+  $('#world-edit-pet').addEventListener('click', () => { if (state?.mine) onEditPet?.(); });
   const scene = createWorldScene($('#world-canvas'), { onInteract: action => {
     if (action === 'chat') { $('#chat-input').focus(); return; }
     if (action === 'game') { $('#game-library').scrollIntoView({ behavior: 'smooth' }); $('#hub-play').focus({ preventScroll: true }); return; }
@@ -75,6 +76,7 @@ export function createCompanionHub({ api, notify, refresh, onPlay }) {
     }
   }
   function controls() {
+    $('#world-edit-pet').hidden = !state?.mine;
     $('#chat-input').disabled = !state?.mine || busy || loading;
     $('#chat-send').disabled = !state?.mine || busy || loading || !$('#chat-input').value.trim();
     $('#chat-send').textContent = busy ? '回复中…' : '发送 ↑';

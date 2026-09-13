@@ -15,6 +15,7 @@ const files = {
   '/duel.css': ['public/duel.css', 'text/css; charset=utf-8'],
   '/shared/game.mjs': ['shared/game.mjs', 'text/javascript; charset=utf-8'],
   '/shared/pet.mjs': ['shared/pet.mjs', 'text/javascript; charset=utf-8'],
+  '/shared/pet-studio.mjs': ['shared/pet-studio.mjs', 'text/javascript; charset=utf-8'],
   '/shared/life.mjs': ['shared/life.mjs', 'text/javascript; charset=utf-8'],
   '/pet-editor.mjs': ['public/pet-editor.mjs', 'text/javascript; charset=utf-8'],
   '/pet-editor.css': ['public/pet-editor.css', 'text/css; charset=utf-8'],
