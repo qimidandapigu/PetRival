@@ -6,7 +6,7 @@ import { database } from '../cloud-test/support.mjs';
 const root = resolve('dist/client');
 const db = database();
 const types = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
-const env = { DB: db, AI_MODE: 'algorithm', ASSETS: { async fetch(req) {
+const env = { DB: db, AI_MODE: 'algorithm', CLOUDBASE_ENV_ID: process.env.CLOUDBASE_ENV_ID, ASSETS: { async fetch(req) {
   const path = new URL(req.url).pathname;
   const filename = resolve(root, '.' + (path === '/' ? '/index.html' : path));
   if (!filename.startsWith(root + sep)) return new Response('Not found', { status: 404 });

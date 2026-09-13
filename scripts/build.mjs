@@ -9,6 +9,7 @@ writeFileSync('dist/client/pet-badge.svg', petMarkup({ species: 'xiaotangyuan' }
 for (const file of ['game.mjs', 'pet.mjs', 'progression.mjs', 'life.mjs']) cpSync(`shared/${file}`, `dist/client/shared/${file}`);
 cpSync('.openai/hosting.json', 'dist/.openai/hosting.json');
 cpSync('drizzle', 'dist/.openai/drizzle', { recursive: true });
+await build({ entryPoints: ['client/cloudbase.mjs'], bundle: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, outfile: 'dist/client/cloudbase-auth.mjs' });
 await build({ entryPoints: ['cloud/worker.mjs'], bundle: true, platform: 'neutral', format: 'esm', target: 'es2022', outfile: 'dist/server/index.js', external: ['node:*', 'cloudflare:*'] });
 writeFileSync('dist/server/wrangler.json', JSON.stringify({ name: 'petrival-sites', main: 'index.js', compatibility_date: '2026-05-15', compatibility_flags: ['nodejs_compat'], assets: { directory: '../client', binding: 'ASSETS', run_worker_first: true } }, null, 2));
 console.log('PetRival Worker, assets and D1 migrations are ready.');

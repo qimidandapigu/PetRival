@@ -19,6 +19,7 @@
     "dev:cloud": "wrangler dev --local --ip 127.0.0.1 --port 4389"
   },
   "dependencies": {
+    "@cloudbase/js-sdk": "3.9.3",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {

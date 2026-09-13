@@ -1,0 +1,9 @@
+.phone-dialog{position:fixed;inset:0;margin:auto;height:fit-content;width:min(480px,calc(100% - 28px));max-height:90dvh;overflow:auto;border:1px solid #879879;border-radius:14px;padding:26px;background:#fffef9;color:#284936}
+.phone-dialog::backdrop{background:#20362a88;backdrop-filter:blur(3px)}
+.phone-dialog label,.phone-dialog input:not([type]),.phone-dialog input[type=tel],.phone-dialog button,.phone-dialog .input-row button{font-size:16px}
+.phone-dialog label{margin-top:18px;color:#425942}.phone-dialog input{width:100%;font-size:16px!important}
+.phone-dialog p{font-size:16px;line-height:1.7}.phone-dialog .fine{font-size:13px;color:#63745e}
+.phone-dialog #phone-submit,.phone-dialog #phone-existing,.phone-dialog #phone-logout{width:100%;margin-top:12px}
+.phone-dialog #phone-status{color:#72552d;overflow-wrap:anywhere}.phone-dialog .section-heading{margin-bottom:12px}
+.phone-dialog [hidden]{display:none!important}#phone-login{font-size:14px;white-space:nowrap}
+@media(max-width:760px){.topbar{height:auto;min-height:78px;flex-wrap:wrap;padding-block:14px;gap:12px}.top-right{flex-wrap:wrap}.phone-dialog{padding:20px}.phone-dialog .input-row{flex-wrap:wrap}.phone-dialog .input-row input{flex-basis:50%}}

@@ -3,6 +3,7 @@ import { transaction } from './store.mjs';
 import { makeBrain, executeJob } from './brain.mjs';
 import { ApiError } from '../server/arena.mjs';
 import { createHash } from 'node:crypto';
+import { accountSession, authConfig, verifyCloudBase, signInAccount, signOutAccount } from './auth.mjs';
 
 const json = (data, status = 200, extra = {}) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...extra } });
 const cookieToken = req => (req.headers.get('cookie') || '').split(';').map(s => s.trim()).find(s => s.startsWith('petrival='))?.slice(9);
@@ -13,7 +14,7 @@ const signedIdentity = req => {
   const email = req.headers.get('oai-authenticated-user-email')?.trim().toLowerCase();
   return email ? `site-email:${createHash('sha256').update(email).digest('hex')}` : null;
 };
-const identity = (req, arena) => signedIdentity(req) || arena.owner(cookieToken(req));
+const identity = (req, arena) => accountSession(req, arena)?.owner || signedIdentity(req) || arena.owner(cookieToken(req));
 async function readBody(request) {
   const reader = request.body?.getReader(); if (!reader) return {};
   const chunks = []; let bytes = 0;
@@ -84,13 +85,25 @@ export default {
         if (origin && origin !== url.origin) throw new ApiError(403, '拒绝跨站请求');
       }
       const brain = makeBrain(env), input = request.method === 'POST' ? await readBody(request) : {};
+      if (path === '/api/auth/config' && request.method === 'GET') return json(authConfig(env));
+      if (path === '/api/auth/cloudbase' && request.method === 'POST') {
+        await runTransaction(env, brain, arena => limit(arena, request.headers.get('cf-connecting-ip') || 'local', 'phone-login', 12));
+        const verified = await verifyCloudBase(env, input.accessToken);
+        const result = await runTransaction(env, brain, arena => signInAccount(request, arena, verified, { useExisting: input.useExisting === true, sourceOwner: signedIdentity(request) }));
+        if (result.conflict) return json({ error: '这个手机号已有宠物存档，请选择要使用的存档', code: 'account_has_pet', guestName: result.guestName, accountName: result.accountName }, 409);
+        return json({ ok: true, migrated: result.migrated }, 200, { 'set-cookie': result.setCookie });
+      }
+      if (path === '/api/auth/logout' && request.method === 'POST') {
+        const cookie = await runTransaction(env, brain, arena => signOutAccount(request, arena));
+        return json({ ok: true }, 200, { 'set-cookie': cookie });
+      }
       if (path === '/api/health' && request.method === 'GET') { await env.DB.prepare('SELECT revision FROM arena_meta LIMIT 1').all(); return json({ ok: true, game: 'PetRival', storage: 'D1', ...brain.info() }); }
       if (path === '/api/work' && request.method === 'POST') return await work(request, env, brain);
       let responseStatus = 200, responseHeaders = {};
       const result = await runTransaction(env, brain, (arena, store) => {
         const owner = identity(request, arena);
         if (path === '/api/session' && request.method === 'POST') {
-          if (owner) return { ok: true, signedIn: !!signedIdentity(request) };
+          if (owner) return { ok: true, signedIn: !!(accountSession(request, arena) || signedIdentity(request)) };
           limit(arena, request.headers.get('cf-connecting-ip') || 'local', 'session', 15);
           const session = arena.session(); responseStatus = 201;
           responseHeaders['set-cookie'] = `petrival=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${url.protocol === 'https:' ? '; Secure' : ''}`;
@@ -98,7 +111,10 @@ export default {
         }
         if (!owner) throw new ApiError(401, '请先登录或建立访客身份');
         if (request.method === 'POST') limit(arena, owner, 'writes', 180);
-        if (path === '/api/state' && request.method === 'GET') return { ...arena.view(owner), storage: 'D1', signedIn: !!signedIdentity(request) };
+        if (path === '/api/state' && request.method === 'GET') {
+          const account = accountSession(request, arena);
+          return { ...arena.view(owner), storage: 'D1', signedIn: !!(account || signedIdentity(request)), auth: { phoneEnabled: authConfig(env).enabled, provider: account ? 'cloudbase' : signedIdentity(request) ? 'chatgpt' : 'guest', maskedPhone: account?.maskedPhone || null } };
+        }
         if (path === '/api/score-ledger' && request.method === 'GET') { const pet = arena.mine(owner); return { petId: pet?.id || null }; }
         if (path === '/api/pets' && request.method === 'POST') { if (Object.values(arena.s.pets).length >= 500) throw new ApiError(503, '本轮试玩名额已满'); arena.createPet(owner, input); responseStatus = 201; return arena.view(owner); }
         if (path === '/api/pets/appearance' && request.method === 'POST') { arena.updateAppearance(owner, input); return arena.view(owner); }
