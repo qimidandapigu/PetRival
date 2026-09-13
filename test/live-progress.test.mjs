@@ -31,7 +31,7 @@ async function fixture(t) {
     else respond();
   });
   await new Promise(r => provider.listen(0, '127.0.0.1', r));
-  const env = { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'live-fixture', MODEL_API_KEY: 'fixture-only' };
+  const env = { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_PLAY_EFFORT: 'high', MODEL_NAME: 'live-fixture', MODEL_API_KEY: 'fixture-only' };
   const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-live-test-')), env, brainOptions: { stepMs: 10 } });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   t.after(async () => { await app.close(); await new Promise(r => { provider.close(r); provider.closeAllConnections(); }); });
@@ -181,7 +181,7 @@ test('both provider lanes have bounded queues and at most three total active HTT
   assert.equal(f.brain.queue.length + f.brain.preparationQueue.length, 0);
 });
 
-test('default DeepSeek Pro request sends high thinking with reasoning-sized budget and no secret metadata', async t => {
+test('default DeepSeek Pro request disables thinking with reasoning-sized budget and no secret metadata', async t => {
   const observed = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     observed.push({ url, body: JSON.parse(options.body) });
@@ -192,10 +192,10 @@ test('default DeepSeek Pro request sends high thinking with reasoning-sized budg
     await brain.json([{ role: 'user', content: 'Return JSON actions.' }]);
     assert.equal(observed[0].url, 'https://api.deepseek.com/chat/completions');
     assert.equal(observed[0].body.model, 'deepseek-v4-pro');
-    assert.deepEqual(observed[0].body.thinking, { type: 'enabled' });
-    assert.equal(observed[0].body.reasoning_effort, 'high');
+    assert.deepEqual(observed[0].body.thinking, { type: 'disabled' });
+    assert.equal(observed[0].body.reasoning_effort, 'none');
     assert.equal(observed[0].body.max_tokens, 16384);
-    assert.deepEqual(brain.info(), { mode: 'model', model: 'deepseek-v4-pro', playEffort: 'high' });
+    assert.deepEqual(brain.info(), { mode: 'model', model: 'deepseek-v4-pro', playEffort: 'none' });
   } finally { brain.close(); }
 });
 
@@ -213,7 +213,7 @@ for (const effort of ['high', 'low', 'none']) {
     t.after(() => brain.close());
     const prepared = await brain.generate('fixture puzzle', 54);
     assert.equal(prepared.method, 'model');
-    const result = await brain.play(prepared.rows, { onProgress: snapshot => progress.push(snapshot) });
+    const result = await brain.play(prepared.rows, { style: 'plan', onProgress: snapshot => progress.push(snapshot) });
     assert.equal(replay(prepared.rows, result.actions).won, true);
     assert.equal(result.effort, effort);
     assert.ok(progress.length > 1 && progress.every(snapshot => snapshot.effort === effort));

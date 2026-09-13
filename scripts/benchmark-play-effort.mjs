@@ -86,7 +86,7 @@ if (process.argv.includes('--prepare')) {
     active.add(brain); const started = performance.now();
     console.log(`START ${level.id}/${effort}`);
     try {
-      const result = await requestContext.run(trial, () => brain.play(level.rows, { onProgress: progress => {
+      const result = await requestContext.run(trial, () => brain.play(level.rows, { style: 'plan', onProgress: progress => {
         const elapsed = performance.now() - started;
         if (trial.firstActionMs === null && progress.actions.length) trial.firstActionMs = elapsed;
         if (trial.firstMoveMs === null && progress.steps > 0) trial.firstMoveMs = elapsed;

@@ -50,14 +50,16 @@ test('walking assistance executes only the selected push and never moves another
     assert.equal(replay(rows, choice.actions).pushes, 1);
   }
   t.mock.method(globalThis, 'fetch', async (url, options) => {
-    const input = JSON.parse(JSON.parse(options.body).messages[1].content); calls++;
+    const body = JSON.parse(options.body);
+    assert.equal(body.thinking.type, 'disabled'); assert.equal(body.reasoning_effort, 'none');
+    const input = JSON.parse(body.messages[1].content); calls++;
     assert.ok(input.availablePushes.every(p => !Object.hasOwn(p, 'actions')), 'model sees available operations, no supplied solution');
     const selected = input.availablePushes.find(p => p.onGoal && !p.wasOnGoal);
     return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ choice: selected.id }) } }] }) };
   });
-  const brain = brainFor(), progress = [];
+  const brain = new PetBrain({ run() { throw new Error('Contestant called solver'); } }, { AI_MODE: 'model', MODEL_API_KEY: 'fixture-only' }, { stepMs: 0 }), progress = [];
   try {
-    const result = await brain.play(rows, { style: 'push', onProgress: p => progress.push(p) });
+    const result = await brain.play(rows, { onProgress: p => progress.push(p) });
     assert.ok(replay(rows, result.actions).won); assert.equal(calls, 2); assert.equal(result.playStyle, 'push');
     assert.equal(progress.filter(p => p.phase === 'acting').length, result.actions.length, 'each walking tile remains visible');
   } finally { brain.close(); }

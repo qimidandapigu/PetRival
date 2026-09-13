@@ -47,7 +47,7 @@ function render() {
       <div class="section-heading"><span class="eyebrow">YOUR COMPANION</span><span class="badge ready">● 守擂关已就绪</span></div>
       <div class="pet-profile">${avatar(mine)}<div><h2>${escape(mine.name)} <span class="muted small">你的搭档</span></h2><p>${mine.preparing ? '正在后台准备下一关，当前关卡可照常挑战。' : '已经备好一道题，随时可以出战。'}</p><span class="badge">${method(mine.level.method)}</span> <span class="badge">${mine.defense ? '已开启异步守擂' : '暂未开启守擂'}</span></div><div class="pet-score"><strong>${mine.score}</strong><span>挑战积分</span></div></div>
       <form id="prepare"><label for="intent">下一关，想怎么出？</label><div class="input-row"><input id="intent" name="intent" maxlength="240" value="${escape(mine.intent)}" placeholder="例如：两个箱子，有点绕"><button class="primary" ${mine.preparing ? 'disabled' : ''}>${mine.preparing ? '备题中…' : '后台备新题 ↗'}</button></div></form>
-      ${mine.prepareError ? `<p class="error-text">${escape(mine.prepareError)}</p>` : ''}<div class="profile-actions"><button id="practice">试玩我的守擂关</button><button id="practice-ai">和宠物一起试跑</button><button id="practice-step" ${state.mode === 'model' ? '' : 'disabled'}>一步一步试跑</button><button id="edit-pet">编辑外观 / 导入导出</button><span class="fine">试玩不计分 · 不影响正式挑战</span></div>` : `
+      ${mine.prepareError ? `<p class="error-text">${escape(mine.prepareError)}</p>` : ''}<div class="profile-actions"><button id="practice">试玩我的守擂关</button><button id="practice-ai">和宠物一起试跑</button><button id="edit-pet">编辑外观 / 导入导出</button><span class="fine">试玩不计分 · 不影响正式挑战</span></div>` : `
       <div class="section-heading"><div><span class="eyebrow">YOUR FIRST COMPANION</span><h2>领养你的第一位搭档</h2></div><span class="badge">访客试玩</span></div>
       <form id="adopt"><div class="species-picker"><label><input type="radio" name="species" value="xiaotangyuan" checked>${avatar('xiaotangyuan')}<span>小汤圆</span></label><label><input type="radio" name="species" value="sprout">${avatar('sprout')}<span>芽芽灵</span></label><label><input type="radio" name="species" value="fox">${avatar('fox')}<span>火花狐</span></label><label><input type="radio" name="species" value="ghost">${avatar('ghost')}<span>云朵兽</span></label></div><label for="pet-name">给搭档起个名字</label><div class="input-row"><input id="pet-name" name="name" maxlength="16" required value="小汤圆" placeholder="例如：会推箱子的栗子"><button class="primary">一起出发 →</button></div><label class="checkbox"><input name="defense" type="checkbox" checked>允许其他宠物直接发起异步挑战（未开始的对局不会判负）</label><p class="fine">身份保存在当前浏览器。清除 Cookie 后无法恢复；此版尚无正式账号系统。</p></form>`;
   }
@@ -80,11 +80,6 @@ function bindHome() {
     try { await startTogether(); }
     finally { if ($('#practice-ai')) $('#practice-ai').disabled = false; }
   });
-  bind('#practice-step', 'click', async e => {
-    e.currentTarget.disabled = true;
-    try { await startTogether('push'); }
-    finally { if ($('#practice-step')) $('#practice-step').disabled = false; }
-  });
   document.querySelectorAll('[data-challenge]').forEach(button => button.addEventListener('click', async () => {
     button.disabled = true;
     try { const m = await api('/api/challenges', { opponentId: button.dataset.challenge }); await openMatch(m.id); await refresh(); }
@@ -92,7 +87,7 @@ function bindHome() {
   }));
   document.querySelectorAll('[data-open]').forEach(button => button.addEventListener('click', () => openMatch(button.dataset.open).catch(e => notify(e.message, true))));
 }
-async function startTogether(style = 'plan') {
+async function startTogether(style) {
   const previous = game;
   try {
     const result = await api('/api/practice/start', { style });

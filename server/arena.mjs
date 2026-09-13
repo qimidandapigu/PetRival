@@ -251,7 +251,7 @@ export class Arena {
     need(practice && practice.id === id, '试玩不存在或无权访问', 404);
     return this.practiceView(practice);
   }
-  startPractice(owner, { style = 'plan' } = {}) {
+  startPractice(owner, { style = this.brain.playEffort === 'none' ? 'push' : 'plan' } = {}) {
     need(['plan', 'step', 'push'].includes(style), '未知试玩方式');
     const pet = this.mine(owner); need(pet, '请先领养宠物');
     const existing = this.practices.get(owner);

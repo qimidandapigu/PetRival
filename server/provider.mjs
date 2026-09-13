@@ -12,7 +12,7 @@ export class PetBrain {
     if (!['algorithm', 'model'].includes(this.mode)) throw new Error('AI_MODE 必须为 algorithm 或 model');
     this.url = env.MODEL_CHAT_URL || 'https://api.deepseek.com/chat/completions';
     this.model = env.MODEL_NAME || 'deepseek-v4-pro'; this.key = env.MODEL_API_KEY;
-    this.playEffort = env.MODEL_PLAY_EFFORT ?? 'high';
+    this.playEffort = env.MODEL_PLAY_EFFORT ?? 'none';
     if (!['high', 'low', 'none'].includes(this.playEffort)) throw new Error('MODEL_PLAY_EFFORT 必须为 high、low 或 none');
     this.tokenParameter = env.MODEL_TOKEN_PARAMETER || 'max_tokens';
     if (!['max_tokens', 'max_completion_tokens'].includes(this.tokenParameter)) throw new Error('不支持的模型 Token 参数');
@@ -97,7 +97,7 @@ export class PetBrain {
       }
     }
   }
-  async play(rows, { onProgress = () => {}, signal, style = 'plan' } = {}) {
+  async play(rows, { onProgress = () => {}, signal, style = this.playEffort === 'none' ? 'push' : 'plan' } = {}) {
     if (!['plan', 'step', 'push'].includes(style)) throw new Error('未知闯关方式');
     if (style !== 'plan' && this.mode === 'model') return this.playSteps(rows, { onProgress, signal, style });
     // Only public board data crosses this boundary. No generation proof, owner chat or human replay.
