@@ -9,7 +9,7 @@ test('polling must not multiply a preserved adoption form submission', async () 
   const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8');
   const form = new EventTarget(); form.querySelector = () => ({ disabled: false });
   const noop = { addEventListener() {}, disabled: false };
-  const nodes = { '#adopt': form, '#refresh': noop, '#close-game': noop, '#game-dialog': noop, '#undo': noop, '#restart': noop, '#give-up': noop, '#completion-primary': noop, '#completion-dismiss': noop };
+  const nodes = { '#adopt': form, '#refresh': noop, '#close-game': noop, '#game-dialog': noop, '#undo': noop, '#restart': noop, '#give-up': noop, '#completion-primary': noop, '#completion-dismiss': noop, '#continue-practice': noop, '#retry-match': noop };
   let posts = 0;
   const context = vm.createContext({
     document: { querySelector: s => nodes[s] || null, querySelectorAll: () => [], addEventListener() {} },

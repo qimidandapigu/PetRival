@@ -1,6 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parse, replay, renderRows, RULES } from '../shared/game.mjs';
-class ProviderUnavailable extends Error {}
+class ProviderUnavailable extends Error {
+  constructor(message, options = {}) { super(message); this.name = 'ProviderUnavailable'; this.code = options.code || 'model_unavailable'; this.upstreamStatus = options.upstreamStatus; }
+}
 class PlayDeadline extends Error {}
 
 // Local mode deliberately understands a small set of direct invitations. Mentioning
@@ -74,14 +76,16 @@ export class PetBrain {
       try {
         combined.throwIfAborted();
         const response = await fetch(this.url, {
-          method: 'POST', redirect: 'error', signal: combined,
+          // Workers supports manual/follow only. Manual also prevents credentials
+          // from following a provider redirect; every non-2xx response is rejected.
+          method: 'POST', redirect: 'manual', signal: combined,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.key}` },
           body: JSON.stringify({ model: this.model, messages, [this.tokenParameter]: maxTokens, response_format: { type: 'json_object' },
             ...(this.deepseek ? { thinking: { type: thinking }, ...(thinking === 'enabled' ? { reasoning_effort: reasoningEffort } : {}) } : {}) }),
         });
-        if (!response.ok) throw new Error();
+        if (!response.ok) throw new ProviderUnavailable('模型服务暂时不可用', { code: 'model_http_error', upstreamStatus: response.status });
         body = await response.json();
-      } catch { combined.throwIfAborted(); throw new ProviderUnavailable('模型服务暂时不可用'); }
+      } catch (error) { combined.throwIfAborted(); if (error instanceof ProviderUnavailable) throw error; throw new ProviderUnavailable('模型服务暂时不可用', { code: 'model_transport_error' }); }
       const content = body.choices?.[0]?.message?.content;
       if (typeof content !== 'string' || content.length > 20000) throw new Error('模型没有返回有效的 JSON 内容');
       return JSON.parse(content.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));

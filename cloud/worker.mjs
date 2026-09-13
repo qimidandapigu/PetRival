@@ -52,7 +52,9 @@ async function work(request, env, brain) {
           const result = await executeJob(brain, job, abort.signal);
           await runTransaction(env, brain, arena => arena.finishJob(job, result));
           send(JSON.stringify({ worked: true }));
-        } catch {
+        } catch (error) {
+          // Keep diagnostic detail server-side; never log credentials or model content.
+          console.error('PetRival job failed', job.kind, error.name, error.code || '', error.upstreamStatus || '');
           try { await runTransaction(env, brain, arena => arena.failJob(job, '任务执行中断或服务不可用')); } catch { /* persisted lease recovers */ }
           send(JSON.stringify({ worked: true, failed: true }));
         } finally { clearInterval(pulse); brain.close(); if (!closed) { closed = true; try { controller.close(); } catch {} } }

@@ -30,6 +30,10 @@
   <dialog id="game-dialog">
     <div class="dialog-top"><div><span class="eyebrow" id="game-kind">挑战</span><h2 id="game-title"></h2></div><button class="icon-button" id="close-game" aria-label="关闭游戏">×</button></div>
     <div class="duel-heading"><span>同一道题，人宠一起出发</span><span>各自操作 · 独立计分</span></div>
+    <section id="challenge-recovery" class="challenge-recovery" hidden aria-label="对局恢复">
+      <div role="status"><strong>本局已作废，不扣分</strong><p id="recovery-message">本局已停止接收操作。你可以继续练习这关，或重新发起挑战。</p></div>
+      <div class="recovery-actions"><button id="continue-practice" type="button">继续练习这关</button><button id="retry-match" class="primary" type="button">重新挑战</button></div>
+    </section>
     <div class="game-content">
       <section class="agent-column" aria-label="左侧 AI 棋盘">
         <div class="lane-heading"><h3 id="agent-name">小汤圆 · AI</h3><span class="badge" id="agent-model">DeepSeek Pro</span></div>

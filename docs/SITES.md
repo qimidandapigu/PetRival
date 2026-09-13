@@ -14,9 +14,13 @@ The existing `.openai/hosting.json` identifies PetRival. Reuse that project and 
 - Only the owner can read private chat or claim its task. An opponent can help run match/preparation jobs without receiving chat history. Private level proofs and unexecuted model plans are excluded from public responses.
 - This prototype loads arena records per request, uses a revision fence for atomic changes, and caps 500 pets and 2,000 matches. Larger public operation needs partitioning and archival; this release is not a capacity certification.
 - Anonymous data is saved in D1 but access depends on the current browser cookie. ChatGPT identity is also supported. Phone/email authentication and guest-account linking are not implemented.
+- Provider requests use `redirect: 'manual'`: Workers does not support `redirect: 'error'`. Redirect responses fail safely without forwarding model credentials. Server diagnostics retain only job kind, error class/code and upstream HTTP status.
+- Voided matches remain unranked and immutable. Their recovery panel can open the same board and local moves as an unranked practice, or explicitly create a new challenge.
 
 ## Verification boundary
 
 Run `npm test`, `npm run test:cloud`, `npm run check`, and `npm run build`. Cloud tests use SQLite to exercise the same Worker handler, job transactions, identities, retries and score bookkeeping. A passing suite does not prove live provider behavior or human acceptance.
+
+The Worker runtime regression also runs the bundled application under Miniflare/workerd (installed with Wrangler) against a local model HTTP double, including redirect rejection. This catches runtime incompatibilities that Node-only handler tests cannot detect.
 
 `node scripts/preview.mjs` serves the same Worker locally against temporary in-memory SQLite when the native Windows Worker emulator is unavailable. Use it only as a development preview. Production data remains in Sites D1.
