@@ -1,5 +1,9 @@
 # Shared pet, game selection and durable matches
 
+Published successfully as Sites v11 on 2026-09-14 (Asia/Shanghai): https://petrival.clear-oasis-2741.chatgpt.site/. GitHub game commit: `b995ae8088d5787516c5ce4874145747e74eaf80`; Sites source commit: `7faec498ef239f8a4b4f620cbf0db0a9b2979d3e`. Later documentation-only commits do not change this runtime release.
+
+Post-release audit: all four source tasks confirmed no missing functional patch. The boxing task supplied one additional routing regression; it was adapted to the merged `state.mine.selectedGame` implementation as `test/game-selection.test.mjs` and passed independently (1/1). README, Sites and boxing documentation were corrected, and AGENTS/CONTRIBUTING now require development from the latest main in isolated task branches/worktrees. These documentation and test-only changes do not require a new runtime deployment. Daily 0.5 CNY check-in credit remains an unintegrated reference module; its UI, durable credit ledger and real usage deduction are still pending. Ads and payment are deferred.
+
 Integrated the completed boxing, competition-skill and incremental Sokoban task deliveries into the existing courtyard and phone-account application.
 
 - The game library selects Sokoban or boxing on the same pet page. Selection persists on the pet. Opponents, match history and rankings follow the selection; boxing opens a scoped dialog. Legacy boxing URLs return to the shared homepage.
