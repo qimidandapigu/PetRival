@@ -251,7 +251,8 @@ export class Arena {
     need(practice && practice.id === id, '试玩不存在或无权访问', 404);
     return this.practiceView(practice);
   }
-  startPractice(owner) {
+  startPractice(owner, { style = 'plan' } = {}) {
+    need(['plan', 'step', 'push'].includes(style), '未知试玩方式');
     const pet = this.mine(owner); need(pet, '请先领养宠物');
     const existing = this.practices.get(owner);
     if (existing?.run.status === 'running') return this.practiceView(existing);
@@ -259,11 +260,13 @@ export class Arena {
     for (const [key, previous] of this.practices) if (previous.run.status !== 'running' && this.now() - previous.createdAt > 3600000) this.practices.delete(key);
     const practice = { id: randomUUID(), level: this.levelView(pet.readyId), createdAt: this.now(),
       run: { ...pendingRun(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model, effort: this.brain.info().playEffort,
-        note: '正在思考路线，你可以同时开始闯关' } };
+        playStyle: this.brain.mode === 'model' ? style : 'plan',
+        ...(style !== 'plan' && this.brain.mode === 'model' ? { effort: this.brain.deepseek ? 'none' : null, phase: 'deciding' } : {}),
+        note: style !== 'plan' ? '正在选择下一步' : '正在思考路线，你可以同时开始闯关' } };
     this.practices.set(owner, practice);
     this.task(async () => {
       try {
-        const result = await this.brain.play(practice.level.rows, { onProgress: progress => { if (!this.closed) Object.assign(practice.run, progress); } });
+        const result = await this.brain.play(practice.level.rows, { style, onProgress: progress => { if (!this.closed) Object.assign(practice.run, progress); } });
         if (this.closed) return;
         const success = replay(practice.level.rows, result.actions).won && !result.timedOut && result.elapsedMs <= RULES.limitMs;
         practice.run = { ...practice.run, ...result, status: success ? 'cleared' : 'failed', ...runScore(success, result.elapsedMs) };

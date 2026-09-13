@@ -1,0 +1,329 @@
+{
+  "startedAt": "2026-09-13T09:02:41.311Z",
+  "finishedAt": "2026-09-13T09:03:06.837Z",
+  "model": "deepseek-v4-pro",
+  "style": "push",
+  "effort": "none",
+  "providerSha256": "f18100433c1aa5e1ea020bab7ef2025ca8fae78d5fbd7e93869be763a2ef2593",
+  "protocol": "Model chooses one next box push from legal push options; fixed-box walking pathfinder executes the approach plus one push. Fresh outcomes each turn; max 60 turns / 180s. No puzzle solver or solution supplied.",
+  "trials": [
+    {
+      "level": "L08",
+      "sha256": "25b4f7780180d753a3a188cb1e664c6e2c76a9c5d442558384f75e710b391398",
+      "startedAt": "2026-09-13T09:02:41.316Z",
+      "firstMoveMs": 1596.3491000000001,
+      "transitions": [
+        {
+          "elapsedMs": 1594,
+          "action": "U",
+          "turn": 1,
+          "moves": 1
+        },
+        {
+          "elapsedMs": 2857,
+          "action": "D",
+          "turn": 2,
+          "moves": 2
+        },
+        {
+          "elapsedMs": 3079,
+          "action": "R",
+          "turn": 2,
+          "moves": 3
+        },
+        {
+          "elapsedMs": 3303,
+          "action": "R",
+          "turn": 2,
+          "moves": 4
+        },
+        {
+          "elapsedMs": 3528,
+          "action": "R",
+          "turn": 2,
+          "moves": 5
+        },
+        {
+          "elapsedMs": 3752,
+          "action": "U",
+          "turn": 2,
+          "moves": 6
+        }
+      ],
+      "error": null,
+      "actions": "UDRRRU",
+      "steps": 6,
+      "elapsedMs": 3752,
+      "method": "model",
+      "model": "deepseek-v4-pro",
+      "effort": "none",
+      "playStyle": "push",
+      "phase": "done",
+      "turn": 2,
+      "note": "游戏引擎已确认通关",
+      "success": true,
+      "wallMs": 3755.1702
+    },
+    {
+      "level": "L01",
+      "sha256": "b7ba93872d008a8fa70b2f60fee4f4fafe30777b785090be3b529c9db8251859",
+      "startedAt": "2026-09-13T09:02:41.321Z",
+      "firstMoveMs": 1664.2771,
+      "transitions": [
+        {
+          "elapsedMs": 1664,
+          "action": "U",
+          "turn": 1,
+          "moves": 1
+        },
+        {
+          "elapsedMs": 1894,
+          "action": "U",
+          "turn": 1,
+          "moves": 2
+        },
+        {
+          "elapsedMs": 2121,
+          "action": "R",
+          "turn": 1,
+          "moves": 3
+        },
+        {
+          "elapsedMs": 2341,
+          "action": "R",
+          "turn": 1,
+          "moves": 4
+        },
+        {
+          "elapsedMs": 2563,
+          "action": "U",
+          "turn": 1,
+          "moves": 5
+        },
+        {
+          "elapsedMs": 2787,
+          "action": "U",
+          "turn": 1,
+          "moves": 6
+        },
+        {
+          "elapsedMs": 3009,
+          "action": "L",
+          "turn": 1,
+          "moves": 7
+        },
+        {
+          "elapsedMs": 3236,
+          "action": "D",
+          "turn": 1,
+          "moves": 8
+        },
+        {
+          "elapsedMs": 5133,
+          "action": "R",
+          "turn": 2,
+          "moves": 9
+        },
+        {
+          "elapsedMs": 5357,
+          "action": "D",
+          "turn": 2,
+          "moves": 10
+        },
+        {
+          "elapsedMs": 5581,
+          "action": "D",
+          "turn": 2,
+          "moves": 11
+        },
+        {
+          "elapsedMs": 5805,
+          "action": "L",
+          "turn": 2,
+          "moves": 12
+        },
+        {
+          "elapsedMs": 6027,
+          "action": "U",
+          "turn": 2,
+          "moves": 13
+        },
+        {
+          "elapsedMs": 7926,
+          "action": "R",
+          "turn": 3,
+          "moves": 14
+        },
+        {
+          "elapsedMs": 8151,
+          "action": "U",
+          "turn": 3,
+          "moves": 15
+        },
+        {
+          "elapsedMs": 8387,
+          "action": "U",
+          "turn": 3,
+          "moves": 16
+        },
+        {
+          "elapsedMs": 8611,
+          "action": "L",
+          "turn": 3,
+          "moves": 17
+        },
+        {
+          "elapsedMs": 8833,
+          "action": "D",
+          "turn": 3,
+          "moves": 18
+        },
+        {
+          "elapsedMs": 10394,
+          "action": "D",
+          "turn": 4,
+          "moves": 19
+        },
+        {
+          "elapsedMs": 12090,
+          "action": "L",
+          "turn": 5,
+          "moves": 20
+        },
+        {
+          "elapsedMs": 12315,
+          "action": "D",
+          "turn": 5,
+          "moves": 21
+        },
+        {
+          "elapsedMs": 12539,
+          "action": "D",
+          "turn": 5,
+          "moves": 22
+        },
+        {
+          "elapsedMs": 12763,
+          "action": "D",
+          "turn": 5,
+          "moves": 23
+        },
+        {
+          "elapsedMs": 12987,
+          "action": "L",
+          "turn": 5,
+          "moves": 24
+        },
+        {
+          "elapsedMs": 13212,
+          "action": "U",
+          "turn": 5,
+          "moves": 25
+        },
+        {
+          "elapsedMs": 14260,
+          "action": "U",
+          "turn": 6,
+          "moves": 26
+        },
+        {
+          "elapsedMs": 16246,
+          "action": "R",
+          "turn": 7,
+          "moves": 27
+        },
+        {
+          "elapsedMs": 16476,
+          "action": "R",
+          "turn": 7,
+          "moves": 28
+        },
+        {
+          "elapsedMs": 17618,
+          "action": "U",
+          "turn": 8,
+          "moves": 29
+        },
+        {
+          "elapsedMs": 17838,
+          "action": "R",
+          "turn": 8,
+          "moves": 30
+        },
+        {
+          "elapsedMs": 18076,
+          "action": "D",
+          "turn": 8,
+          "moves": 31
+        },
+        {
+          "elapsedMs": 19496,
+          "action": "U",
+          "turn": 9,
+          "moves": 32
+        },
+        {
+          "elapsedMs": 19721,
+          "action": "L",
+          "turn": 9,
+          "moves": 33
+        },
+        {
+          "elapsedMs": 19945,
+          "action": "L",
+          "turn": 9,
+          "moves": 34
+        },
+        {
+          "elapsedMs": 20176,
+          "action": "L",
+          "turn": 9,
+          "moves": 35
+        },
+        {
+          "elapsedMs": 22043,
+          "action": "L",
+          "turn": 10,
+          "moves": 36
+        },
+        {
+          "elapsedMs": 23066,
+          "action": "D",
+          "turn": 11,
+          "moves": 37
+        },
+        {
+          "elapsedMs": 23289,
+          "action": "L",
+          "turn": 11,
+          "moves": 38
+        },
+        {
+          "elapsedMs": 23512,
+          "action": "U",
+          "turn": 11,
+          "moves": 39
+        },
+        {
+          "elapsedMs": 25515,
+          "action": "U",
+          "turn": 12,
+          "moves": 40
+        }
+      ],
+      "error": null,
+      "actions": "UURRUULDRDDLURUULDDLDDDLUURRURDULLLLDLUU",
+      "steps": 40,
+      "elapsedMs": 25515,
+      "method": "model",
+      "model": "deepseek-v4-pro",
+      "effort": "none",
+      "playStyle": "push",
+      "phase": "done",
+      "turn": 12,
+      "note": "游戏引擎已确认通关",
+      "success": true,
+      "wallMs": 25515.122600000002
+    }
+  ]
+}

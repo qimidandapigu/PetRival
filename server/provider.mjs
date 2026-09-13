@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parse, replay, renderRows, RULES } from '../shared/game.mjs';
+import { stepObservation, stateKey, reachablePushes } from './step-observation.mjs';
 class ProviderUnavailable extends Error {}
 class PlayDeadline extends Error {}
 
@@ -39,9 +40,10 @@ export class PetBrain {
       this[queueKey].push(waiter);
     });
   }
-  async json(messages, { signal, timeoutMs = 240000, lane = 'foreground' } = {}) {
+  async json(messages, { signal, timeoutMs = 240000, lane = 'foreground', playEffort = this.playEffort } = {}) {
     if (this.closed) throw new Error('服务已停止');
     if (!['foreground', 'preparation'].includes(lane)) throw new Error('未知模型任务类型');
+    if (!['high', 'low', 'none'].includes(playEffort)) throw new Error('未知思考档位');
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(new ProviderUnavailable('模型服务响应超时')), timeoutMs);
     timer.unref();
@@ -52,7 +54,7 @@ export class PetBrain {
       let body;
       try {
         combined.throwIfAborted();
-        const effort = lane === 'preparation' ? 'high' : this.playEffort;
+        const effort = lane === 'preparation' ? 'high' : playEffort;
         const response = await fetch(this.url, {
           method: 'POST', redirect: 'error', signal: combined,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.key}` },
@@ -95,7 +97,9 @@ export class PetBrain {
       }
     }
   }
-  async play(rows, { onProgress = () => {}, signal } = {}) {
+  async play(rows, { onProgress = () => {}, signal, style = 'plan' } = {}) {
+    if (!['plan', 'step', 'push'].includes(style)) throw new Error('未知闯关方式');
+    if (style !== 'plan' && this.mode === 'model') return this.playSteps(rows, { onProgress, signal, style });
     // Only public board data crosses this boundary. No generation proof, owner chat or human replay.
     const started = this.now(), deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(new PlayDeadline('宠物挑战超时')), RULES.limitMs);
@@ -147,6 +151,67 @@ export class PetBrain {
     } catch (error) {
       if (error instanceof PlayDeadline || deadline.signal.aborted) {
         note = '宠物挑战超时，按挑战失败结算';
+        return { ...snapshot(), timedOut: true, elapsedMs: RULES.limitMs };
+      }
+      throw error;
+    } finally { clearTimeout(timer); }
+  }
+  async playSteps(rows, { onProgress, signal, style }) {
+    const started = this.now(), deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(new PlayDeadline('宠物挑战超时')), RULES.limitMs); timer.unref();
+    const combined = AbortSignal.any([deadline.signal, this.stop.signal, ...(signal ? [signal] : [])]);
+    let actions = '', current = replay(rows, ''), phase = 'deciding', note = '正在选择下一步', feedback = null, invalid = 0, turn = 0;
+    const recent = [], visits = new Map([[stateKey(current.state), 1]]);
+    const snapshot = () => ({ actions, steps: current.steps, elapsedMs: Math.max(1, this.now() - started),
+      method: this.mode, model: this.info().model, effort: this.deepseek ? 'none' : null,
+      playStyle: style, phase, turn, note });
+    const check = () => { combined.throwIfAborted(); if (this.now() - started >= RULES.limitMs) throw new PlayDeadline('宠物挑战超时'); };
+    try {
+      while (!current.won && turn < 60 && actions.length < RULES.maxActions) {
+        check(); turn++; phase = 'deciding'; note = `正在看棋盘，选择第 ${turn} 个动作`; await onProgress(snapshot());
+        const undo = replay(rows, actions + 'Z');
+        const observation = stepObservation(current.state, { turn, remainingMs: RULES.limitMs - (this.now() - started),
+          recent, visits: visits.get(stateKey(current.state)) || 1, canUndo: stateKey(undo.state) !== stateKey(current.state), feedback });
+        const choices = style === 'push' ? reachablePushes(current.state) : null;
+        if (choices) observation.availablePushes = choices.map(({ actions: path, ...choice }) => choice);
+        let result;
+        try {
+          result = await this.json([
+            { role: 'system', content: choices ? 'Play Sokoban, choose ONE next push, not a complete solution. Return JSON {"choice":"an id from availablePushes"}. The walking tool will take you to the chosen box and push it ONE tile, then you receive the actual updated board. You decide the box and push direction. Aim to put both boxes on goals. Prefer goal-filling pushes; avoid corner=true. Preserve boxes on goals unless moving them is necessary. Compare box and goal coordinates when choosing intermediate pushes. Do not loop. You can return choice "undo" to undo the previous tile move or "restart" to reset the board; the clock continues. No tool solves the puzzle. Return only the choice JSON.' : 'Play Sokoban interactively, ONE action per turn. Return JSON {"action":"U"}, choosing U/D/L/R to move or push one tile, Z to undo your previous successful move, or X to restart. Do not output a complete solution. After your action you will receive the actual new board and feedback. Put both boxes on goals; boxes cannot be pulled. Coordinates and legalMoves are engine observations, not a solution. To push a box, stand on its opposite side. Avoid pushing boxes into non-goal corners. Use undo when you make a mistake. Use recent moves and visits to avoid repeating a loop. # wall, space floor, . goal, $ box, @ player, * box on goal, + player on goal. The engine decides success.' },
+            { role: 'user', content: JSON.stringify(observation) },
+          ], { signal: combined, playEffort: 'none' });
+        } catch (error) {
+          if (error instanceof ProviderUnavailable || combined.aborted || error instanceof PlayDeadline) throw error;
+          result = null;
+        }
+        check();
+        const plan = choices ? (result?.choice === 'undo' ? 'Z' : result?.choice === 'restart' ? 'X' : choices.find(c => c.id === result?.choice)?.actions) : result?.action;
+        if (typeof plan !== 'string' || !(choices ? /^[UDLRZX]+$/ : /^[UDLRZX]$/).test(plan)) {
+          invalid++; feedback = { error: choices ? 'Invalid choice. Select an id from availablePushes, undo, or restart; board unchanged.' : 'Invalid format: return exactly one action character in JSON {"action":"U"}. Board unchanged.' };
+          if (invalid >= 3) { note = '连续三次未给出合法动作，本次未通关'; break; }
+          continue;
+        }
+        invalid = 0;
+        for (const action of plan) {
+          if (current.won || actions.length >= RULES.maxActions) break;
+          if (this.stepMs > 0) await sleep(this.stepMs, undefined, { signal: combined }); check();
+          const before = current;
+          current = replay(rows, actions + action); actions += action;
+          const changed = stateKey(current.state) !== stateKey(before.state);
+          feedback = { action, ...(choices ? { choice: result.choice } : {}), changed, moved: current.steps > before.steps, goalsFilled: current.state.boxes.filter(b => current.state.goals.includes(b)).length,
+            ...(!changed ? { error: 'No change. Choose a legal move; avoid repeating this action in the same position.' } : {}) };
+          recent.push({ action, player: { x: current.state.player % 8, y: Math.floor(current.state.player / 8) }, changed });
+          if (recent.length > 12) recent.shift();
+          visits.set(stateKey(current.state), (visits.get(stateKey(current.state)) || 0) + 1);
+          phase = 'acting'; note = current.won ? '游戏引擎已确认通关' : action === 'Z' ? '宠物撤销了上一步，准备重新选择' : action === 'X' ? '宠物选择重来，计时继续' : changed ? '已执行一步，继续观察棋盘' : '这一步没有移动，正在反馈给宠物';
+          await onProgress(snapshot());
+        }
+      }
+      if (!current.won && invalid < 3) note = actions.length >= RULES.maxActions ? '已达到操作上限，本次未通关' : '已达到 60 回合，本次未通关';
+      phase = 'done'; return snapshot();
+    } catch (error) {
+      if (error instanceof PlayDeadline || deadline.signal.aborted) {
+        phase = 'done'; note = '宠物挑战超时，按挑战失败结算';
         return { ...snapshot(), timedOut: true, elapsedMs: RULES.limitMs };
       }
       throw error;

@@ -90,7 +90,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       }
       if (path === '/api/practice/start' && req.method === 'POST') {
         rate(`practice:${owner}`, 2);
-        return json(202, arena.startPractice(owner));
+        return json(202, arena.startPractice(owner, input));
       }
       const practiceRoute = path.match(/^\/api\/practice\/([\w-]+)$/);
       if (practiceRoute && req.method === 'GET') return json(200, arena.getPractice(owner, practiceRoute[1]));

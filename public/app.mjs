@@ -47,7 +47,7 @@ function render() {
       <div class="section-heading"><span class="eyebrow">YOUR COMPANION</span><span class="badge ready">● 守擂关已就绪</span></div>
       <div class="pet-profile">${avatar(mine)}<div><h2>${escape(mine.name)} <span class="muted small">你的搭档</span></h2><p>${mine.preparing ? '正在后台准备下一关，当前关卡可照常挑战。' : '已经备好一道题，随时可以出战。'}</p><span class="badge">${method(mine.level.method)}</span> <span class="badge">${mine.defense ? '已开启异步守擂' : '暂未开启守擂'}</span></div><div class="pet-score"><strong>${mine.score}</strong><span>挑战积分</span></div></div>
       <form id="prepare"><label for="intent">下一关，想怎么出？</label><div class="input-row"><input id="intent" name="intent" maxlength="240" value="${escape(mine.intent)}" placeholder="例如：两个箱子，有点绕"><button class="primary" ${mine.preparing ? 'disabled' : ''}>${mine.preparing ? '备题中…' : '后台备新题 ↗'}</button></div></form>
-      ${mine.prepareError ? `<p class="error-text">${escape(mine.prepareError)}</p>` : ''}<div class="profile-actions"><button id="practice">试玩我的守擂关</button><button id="practice-ai">和宠物一起试跑</button><button id="edit-pet">编辑外观 / 导入导出</button><span class="fine">试玩不计分 · 不影响正式挑战</span></div>` : `
+      ${mine.prepareError ? `<p class="error-text">${escape(mine.prepareError)}</p>` : ''}<div class="profile-actions"><button id="practice">试玩我的守擂关</button><button id="practice-ai">和宠物一起试跑</button><button id="practice-step" ${state.mode === 'model' ? '' : 'disabled'}>一步一步试跑</button><button id="edit-pet">编辑外观 / 导入导出</button><span class="fine">试玩不计分 · 不影响正式挑战</span></div>` : `
       <div class="section-heading"><div><span class="eyebrow">YOUR FIRST COMPANION</span><h2>领养你的第一位搭档</h2></div><span class="badge">访客试玩</span></div>
       <form id="adopt"><div class="species-picker"><label><input type="radio" name="species" value="xiaotangyuan" checked>${avatar('xiaotangyuan')}<span>小汤圆</span></label><label><input type="radio" name="species" value="sprout">${avatar('sprout')}<span>芽芽灵</span></label><label><input type="radio" name="species" value="fox">${avatar('fox')}<span>火花狐</span></label><label><input type="radio" name="species" value="ghost">${avatar('ghost')}<span>云朵兽</span></label></div><label for="pet-name">给搭档起个名字</label><div class="input-row"><input id="pet-name" name="name" maxlength="16" required value="小汤圆" placeholder="例如：会推箱子的栗子"><button class="primary">一起出发 →</button></div><label class="checkbox"><input name="defense" type="checkbox" checked>允许其他宠物直接发起异步挑战（未开始的对局不会判负）</label><p class="fine">身份保存在当前浏览器。清除 Cookie 后无法恢复；此版尚无正式账号系统。</p></form>`;
   }
@@ -80,6 +80,11 @@ function bindHome() {
     try { await startTogether(); }
     finally { if ($('#practice-ai')) $('#practice-ai').disabled = false; }
   });
+  bind('#practice-step', 'click', async e => {
+    e.currentTarget.disabled = true;
+    try { await startTogether('push'); }
+    finally { if ($('#practice-step')) $('#practice-step').disabled = false; }
+  });
   document.querySelectorAll('[data-challenge]').forEach(button => button.addEventListener('click', async () => {
     button.disabled = true;
     try { const m = await api('/api/challenges', { opponentId: button.dataset.challenge }); await openMatch(m.id); await refresh(); }
@@ -87,10 +92,10 @@ function bindHome() {
   }));
   document.querySelectorAll('[data-open]').forEach(button => button.addEventListener('click', () => openMatch(button.dataset.open).catch(e => notify(e.message, true))));
 }
-async function startTogether() {
+async function startTogether(style = 'plan') {
   const previous = game;
   try {
-    const result = await api('/api/practice/start', {});
+    const result = await api('/api/practice/start', { style });
     if (game !== previous) return;
     openPractice(result.level); game.practiceId = result.id; game.practiceAgent = result.run; drawAgent();
   } catch (err) { notify(err.message, true); }
@@ -147,13 +152,18 @@ function drawAgent() {
   $('#agent-clock').textContent = run ? duration(elapsed || 0) : '00:00';
   const recorded = game.kind === 'replay' ? game.replayRun : run;
   const model = game.kind === 'replay' ? recorded.model || method(recorded.method) : run?.model || (state.mode === 'model' ? state.model || 'DeepSeek Pro' : '算法 AI');
-  $('#agent-model').textContent = modelLabel(model, recorded ? recorded.effort : state.playEffort);
+  $('#agent-model').textContent = modelLabel(model, recorded ? recorded.effort : state.playEffort) + (['step', 'push'].includes(recorded?.playStyle) ? ' · 逐步行动' : '');
 }
 function drawAgentFeedback(run) {
-  const waiting = game.kind !== 'replay' && run?.status === 'running' && (!run.actions?.length || run.note?.includes('重新思考'));
+  const waiting = game.kind !== 'replay' && run?.status === 'running' && (run.phase === 'deciding' || !run.actions?.length || run.note?.includes('重新思考'));
   const elapsed = run?.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
   $('#agent-status').textContent = game.syncError ? '进度连接中断' : !run ? '本次仅真人试玩' : waiting ? (run.actions?.length ? '重新规划路线' : '等待第一步') : run.status === 'running' ? '正在执行动作' : status(run);
   $('#agent-note').classList.toggle('waiting', waiting && !game.syncError);
+  if (['step', 'push'].includes(run?.playStyle) && !game.syncError) {
+    $('#agent-status').textContent = run.status === 'running' ? (waiting ? '选择下一步' : '执行一步') : status(run);
+    $('#agent-note').textContent = `${run.note} · 第 ${run.turn || 1} 回合。${run.playStyle === 'push' ? 'AI 选择下一次推箱子，寻路工具负责走到位置；每一步立即展示。' : '每次执行一个动作，再观察新棋盘。'}可撤销、重来，计时继续。`;
+    return;
+  }
   $('#agent-note').textContent = game.syncError || (waiting ? `${run.actions?.length ? '宠物正在重新规划路线' : '宠物正在准备路线，尚未返回第一步'} · 已用 ${duration(elapsed)}。${(run.method || state.mode) === 'model' ? 'DeepSeek 会先思考整段路线，再开始移动，可能需要一分钟以上。' : ''}你可以继续玩右边，思考时间也计入 3 分钟时限。` : run?.note || (!run ? '这是单人试玩。返回主页选择“和宠物一起试跑”，即可让 AI 同时闯关。' : '宠物正在独立闯关。'));
 }
 async function pollMatch() {
