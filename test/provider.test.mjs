@@ -21,14 +21,14 @@ async function modelFixture(t, behavior = {}) {
         content = behavior.invalidGeneration || (behavior.repairOnce && requests.filter(r => r.messages[0].content.includes('design Sokoban')).length === 1) ? { rows: ['invalid'] } : { rows: skeleton };
       } else {
         const board = JSON.parse(body.messages[1].content).rows;
-        content = { actions: behavior.invalidPlayer ? 'WIN' : behavior.badPlayer ? 'U' : solve(board).actions };
+        content = behavior.nullPlayer ? null : { actions: behavior.invalidPlayer ? 'WIN' : behavior.badPlayer ? 'U' : solve(board).actions };
       }
       res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }));
     };
     if (generation && behavior.hold) held.push(respond); else respond();
   });
   await new Promise(r => provider.listen(0, '127.0.0.1', r));
-  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-model-test-')), env: { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'test-double', MODEL_API_KEY: 'local-test-only' } });
+  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-model-test-')), brainOptions: { stepMs: 0 }, env: { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'test-double', MODEL_API_KEY: 'local-test-only' } });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const release = () => { behavior.hold = false; held.splice(0).forEach(r => r()); };
@@ -67,6 +67,15 @@ test('real provider HTTP wiring generates, repairs, verifies, and independently 
 
 test('malformed model moves are contestant failure, not a free voided match', async t => {
   const f = await modelFixture(t, { invalidPlayer: true }), a = await f.client('InvalidA'), b = await f.client('InvalidB');
+  await f.arena.idle();
+  const m = await a.call('/api/challenges', { opponentId: b.pet.id }); await f.arena.idle();
+  const view = await a.call(`/api/challenges/${m.id}`);
+  assert.equal(view.status, 'active');
+  assert.ok(view.sides.every(s => s.agent.status === 'failed' && s.agent.score === -20));
+});
+
+test('JSON null from the contestant is invalid play, never an infrastructure exemption', async t => {
+  const f = await modelFixture(t, { nullPlayer: true }), a = await f.client('NullA'), b = await f.client('NullB');
   await f.arena.idle();
   const m = await a.call('/api/challenges', { opponentId: b.pet.id }); await f.arena.idle();
   const view = await a.call(`/api/challenges/${m.id}`);

@@ -6,3 +6,7 @@ data/
 .artifacts/
 *.log
 coverage/
+sites-app/
+dist/
+.wrangler/
+.sites-runtime/

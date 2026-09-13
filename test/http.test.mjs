@@ -5,11 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../server/http.mjs';
 import { solve, generate, RULES } from '../shared/game.mjs';
+import { defaultAppearance, exportPet } from '../shared/pet.mjs';
 
 async function fixture(t, directory) {
   let now = 1000000;
   const dataDir = directory || mkdtempSync(join(tmpdir(), 'petrival-test-'));
-  const app = createApp({ dataDir, env: { AI_MODE: 'algorithm' }, now: () => now });
+  const app = createApp({ dataDir, env: { AI_MODE: 'algorithm' }, now: () => now, brainOptions: { stepMs: 0 } });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   t.after(() => app.close());
@@ -28,6 +29,25 @@ async function fixture(t, directory) {
 }
 const own = m => m.sides.find(s => s.own);
 
+test('pixel cosmetics are owner-only, persist, and cannot change identity or rank', async t => {
+  const f = await fixture(t), a = await f.client('PixelA'), b = await f.client('PixelB');
+  await f.arena.idle();
+  const appearance = defaultAppearance('xiaotangyuan'); appearance.pixels[0] = '#FF00AA';
+  const input = { name: '小汤圆', species: 'xiaotangyuan', appearance };
+  const edited = await a.call('/api/pets/appearance', input);
+  assert.equal(edited.status, 200); assert.equal(edited.body.mine.appearance.pixels[0], '#FF00AA');
+  assert.equal(edited.body.mine.id, a.pet.id); assert.equal(edited.body.mine.score, 0);
+  assert.equal((await b.call('/api/state')).body.mine.name, 'PixelB');
+  assert.equal((await a.call('/api/pets/appearance', { ...input, id: b.pet.id, score: 9000 })).status, 422);
+  assert.equal((await a.call('/api/pets/appearance', { ...input, appearance: { ...appearance, pixels: ['url(javascript:alert(1))', ...appearance.pixels.slice(1)] } })).status, 422);
+  assert.equal((await f.raw('/api/pets/appearance', input)).status, 401);
+  assert.equal((await a.call('/api/state')).body.mine.name, '小汤圆');
+  const data = JSON.parse(readFileSync(join(f.dataDir, 'petrival.json'), 'utf8'));
+  assert.equal(data.pets[a.pet.id].appearance.pixels[0], '#FF00AA');
+  const exported = exportPet(data.pets[a.pet.id]);
+  assert.deepEqual(Object.keys(exported).sort(), ['appearance','format','name','species','version']);
+});
+
 test('real HTTP two-owner challenge: ready snapshots, both agents play, humans clear/fail, rank once', async t => {
   const f = await fixture(t), a = await f.client('Alpha'), b = await f.client('Beta');
   await f.arena.idle();
@@ -43,7 +63,8 @@ test('real HTTP two-owner challenge: ready snapshots, both agents play, humans c
   const startedA = await a.call(`/api/challenges/${id}/start`, {});
   const startedB = await b.call(`/api/challenges/${id}/start`, {});
   assert.equal(startedA.body.sides.every(s => s.agent.status === 'cleared'), true);
-  assert.equal(own(startedA.body).agent.actions, undefined, 'AI answer hidden before human finishes');
+  assert.equal(typeof own(startedA.body).agent.actions, 'string', 'own AI execution is visible while human plays');
+  assert.equal(startedA.body.sides.find(s => !s.own).agent.actions, undefined, 'opponent route stays private until human finishes');
   assert.deepEqual(own(startedA.body).level, locked, 'background replenishment cannot change the match');
   assert.equal((await a.call(`/api/challenges/${id}/finish`, { actions: '', won: true, score: 999999, elapsedMs: 0 })).status, 422);
   f.addTime(1500);
