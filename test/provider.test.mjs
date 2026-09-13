@@ -29,7 +29,7 @@ async function modelFixture(t, behavior = {}) {
     if (generation && behavior.hold) held.push(respond); else respond();
   });
   await new Promise(r => provider.listen(0, '127.0.0.1', r));
-  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-model-test-')), brainOptions: { stepMs: 0 }, env: { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'test-double', MODEL_API_KEY: 'local-test-only' } });
+  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-model-test-')), brainOptions: { stepMs: 0 }, env: { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_PLAY_EFFORT: 'high', MODEL_NAME: 'test-double', MODEL_API_KEY: 'local-test-only' } });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const release = () => { behavior.hold = false; held.splice(0).forEach(r => r()); };

@@ -31,7 +31,7 @@ async function fixture(t) {
     else respond();
   });
   await new Promise(r => provider.listen(0, '127.0.0.1', r));
-  const env = { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_NAME: 'live-fixture', MODEL_API_KEY: 'fixture-only' };
+  const env = { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_PLAY_EFFORT: 'high', MODEL_NAME: 'live-fixture', MODEL_API_KEY: 'fixture-only' };
   const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-live-test-')), env, brainOptions: { stepMs: 10 } });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   t.after(async () => { await app.close(); await new Promise(r => { provider.close(r); provider.closeAllConnections(); }); });
@@ -181,7 +181,7 @@ test('both provider lanes have bounded queues and at most three total active HTT
   assert.equal(f.brain.queue.length + f.brain.preparationQueue.length, 0);
 });
 
-test('default DeepSeek Pro request sends high thinking with reasoning-sized budget and no secret metadata', async t => {
+test('default DeepSeek Pro request disables thinking with reasoning-sized budget and no secret metadata', async t => {
   const observed = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     observed.push({ url, body: JSON.parse(options.body) });
@@ -192,9 +192,114 @@ test('default DeepSeek Pro request sends high thinking with reasoning-sized budg
     await brain.json([{ role: 'user', content: 'Return JSON actions.' }]);
     assert.equal(observed[0].url, 'https://api.deepseek.com/chat/completions');
     assert.equal(observed[0].body.model, 'deepseek-v4-pro');
-    assert.deepEqual(observed[0].body.thinking, { type: 'enabled' });
-    assert.equal(observed[0].body.reasoning_effort, 'high');
+    assert.deepEqual(observed[0].body.thinking, { type: 'disabled' });
+    assert.equal(observed[0].body.reasoning_effort, 'none');
     assert.equal(observed[0].body.max_tokens, 16384);
-    assert.deepEqual(brain.info(), { mode: 'model', model: 'deepseek-v4-pro' });
+    assert.deepEqual(brain.info(), { mode: 'model', model: 'deepseek-v4-pro', playEffort: 'none' });
   } finally { brain.close(); }
+});
+
+for (const effort of ['high', 'low', 'none']) {
+  test(`DeepSeek ${effort} gameplay reaches fetch while preparation stays high and executed snapshots retain effort`, async t => {
+    const board = generate(54), observed = [], progress = [];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+      const request = JSON.parse(options.body); observed.push({ url, request });
+      const design = request.messages[0].content.startsWith('You design Sokoban');
+      const content = design ? { rows: board.rows } : { actions: board.proof };
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+    });
+    const jobs = { run: async (type, input) => type === 'generate' ? board : solve(input.rows) };
+    const brain = new PetBrain(jobs, { AI_MODE: 'model', MODEL_API_KEY: 'fixture-only', MODEL_PLAY_EFFORT: effort }, { stepMs: 0 });
+    t.after(() => brain.close());
+    const prepared = await brain.generate('fixture puzzle', 54);
+    assert.equal(prepared.method, 'model');
+    const result = await brain.play(prepared.rows, { style: 'plan', onProgress: snapshot => progress.push(snapshot) });
+    assert.equal(replay(prepared.rows, result.actions).won, true);
+    assert.equal(result.effort, effort);
+    assert.ok(progress.length > 1 && progress.every(snapshot => snapshot.effort === effort));
+    assert.equal(brain.info().playEffort, effort);
+    assert.equal(observed.length, 2);
+    for (const { url, request } of observed) {
+      assert.equal(url, 'https://api.deepseek.com/chat/completions');
+      assert.equal(request.max_tokens, 16384);
+      assert.equal(request.model, 'deepseek-v4-pro');
+      assert.deepEqual(request.response_format, { type: 'json_object' });
+    }
+    assert.deepEqual(observed[0].request.thinking, { type: 'enabled' });
+    assert.equal(observed[0].request.reasoning_effort, 'high');
+    assert.deepEqual(observed[1].request.thinking, { type: effort === 'none' ? 'disabled' : 'enabled' });
+    assert.equal(observed[1].request.reasoning_effort, effort);
+  });
+}
+
+test('other compatible endpoints receive no DeepSeek-only controls in either lane', async t => {
+  const observed = [];
+  const provider = http.createServer(async (req, res) => {
+    let raw = ''; for await (const chunk of req) raw += chunk;
+    observed.push(JSON.parse(raw));
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ message: { content: '{"actions":"U"}' } }] }));
+  });
+  await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { provider.close(resolve); provider.closeAllConnections(); }));
+  for (const effort of ['high', 'low', 'none']) {
+    const brain = new PetBrain({}, { AI_MODE: 'model', MODEL_CHAT_URL: `http://127.0.0.1:${provider.address().port}/chat/completions`, MODEL_API_KEY: 'fixture-only', MODEL_PLAY_EFFORT: effort });
+    try {
+      for (const lane of ['foreground', 'preparation']) await brain.json([{ role: 'user', content: 'Return JSON actions.' }], { lane });
+      assert.equal(brain.info().playEffort, null, 'do not claim an effort setting that this provider never received');
+    } finally { brain.close(); }
+  }
+  assert.equal(observed.length, 6);
+  for (const request of observed) {
+    assert.equal(Object.hasOwn(request, 'thinking'), false);
+    assert.equal(Object.hasOwn(request, 'reasoning_effort'), false);
+    assert.equal(request.max_tokens, 16384);
+  }
+});
+
+test('algorithm gameplay never claims model thinking effort', async () => {
+  const board = generate(55), progress = [];
+  const brain = new PetBrain({ run: async () => ({ actions: board.proof }) }, { AI_MODE: 'algorithm', MODEL_PLAY_EFFORT: 'low' }, { stepMs: 0 });
+  try {
+    const result = await brain.play(board.rows, { onProgress: snapshot => progress.push(snapshot) });
+    assert.equal(result.effort, null);
+    assert.equal(result.model, null);
+    assert.ok(progress.length > 1 && progress.every(snapshot => snapshot.effort === null));
+    assert.deepEqual(brain.info(), { mode: 'algorithm', model: null, playEffort: null });
+  } finally { brain.close(); }
+});
+
+test('invalid gameplay thinking effort fails during startup', () => {
+  for (const effort of ['', 'medium', 'HIGH', 'disabled']) {
+    assert.throws(() => new PetBrain({}, { AI_MODE: 'model', MODEL_API_KEY: 'fixture-only', MODEL_PLAY_EFFORT: effort }), /MODEL_PLAY_EFFORT/);
+  }
+});
+
+test('arena exposes current effort but preserves initial and historical run effort independently', async t => {
+  const app = createApp({ dataDir: mkdtempSync(join(tmpdir(), 'petrival-effort-view-')), env: { AI_MODE: 'model', MODEL_API_KEY: 'fixture-only', MODEL_PLAY_EFFORT: 'low' } });
+  t.after(() => app.close());
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  app.brain.generate = async () => generate(57);
+  app.brain.play = async rows => { await held; const actions = solve(rows).actions; return { actions, elapsedMs: 100, method: 'model', model: 'deepseek-v4-pro', effort: 'low' }; };
+  const owner = app.arena.session().owner;
+  const pet = app.arena.createPet(owner, { name: 'EffortOwner', species: 'fox', defense: true });
+  await app.arena.idle();
+  assert.equal(app.arena.view(owner).playEffort, 'low');
+  const rival = Object.values(app.store.state.pets).find(p => p.bot);
+  const created = app.arena.challenge(owner, rival.id);
+  const match = app.store.state.challenges[created.id];
+  app.arena.launchAgents(match);
+  assert.ok(match.sides.every(side => side.agent.effort === 'low'), 'starting snapshots record effort before the first provider progress event');
+  const practice = app.arena.startPractice(owner);
+  assert.equal(practice.run.effort, 'low');
+  app.brain.playEffort = 'high';
+  assert.equal(app.arena.view(owner).playEffort, 'high');
+  assert.ok(app.arena.matchView(match, owner).sides.every(side => side.agent.effort === 'low'));
+  assert.equal(app.arena.getPractice(owner, practice.id).run.effort, 'low');
+  release(); await app.arena.idle();
+  const ownSide = match.sides.find(side => side.petId === pet.id);
+  assert.equal(ownSide.agent.effort, 'low');
+  delete ownSide.agent.effort;
+  assert.equal(app.arena.matchView(match, owner).sides.find(side => side.own).agent.effort, undefined, 'older records with no effort stay unknown');
 });

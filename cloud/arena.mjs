@@ -3,6 +3,7 @@ import { Arena, ApiError } from '../server/arena.mjs';
 import { replay, RULES, runScore } from '../shared/game.mjs';
 import { recordVerifiedClear, progressionView } from '../shared/progression.mjs';
 import { LIFE_ACTIONS, advanceLife, requestLifeAction, lifeView } from '../shared/life.mjs';
+import { stateKey } from '../server/step-observation.mjs';
 
 const requireThat = (ok, message, status = 400) => { if (!ok) throw new ApiError(status, message); };
 const pending = () => ({ status: 'pending', actions: '', score: null });
@@ -62,14 +63,15 @@ export class CloudArena extends Arena {
   }
   practiceView(p) { return { id: p.id, level: p.level, run: publicRun(p.run), ranked: false }; }
   getPractice(owner, id) { this.tick(); return super.getPractice(owner, id); }
-  startPractice(owner) {
+  startPractice(owner, { style = this.brain.playEffort === 'none' ? 'push' : 'plan' } = {}) {
+    requireThat(['plan', 'step', 'push'].includes(style), '未知试玩方式');
     const pet = this.mine(owner); requireThat(pet, '请先领养宠物');
     this.tick();
     const previous = this.practices.get(owner);
     if (previous && ['running', 'pending'].includes(previous.run.status)) return this.practiceView(previous);
     if (previous) delete this.s.practices[previous.id];
     const p = { id: randomUUID(), owner, petId: pet.id, level: this.levelView(pet.readyId), createdAt: this.now(),
-      run: { ...pending(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model, note: '宠物正在准备路线，你可以同时开始' } };
+      run: { ...pending(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model, playStyle: this.brain.mode === 'model' ? style : 'plan', effort: this.brain.info().playEffort, note: '宠物正在准备路线，你可以同时开始' } };
     this.s.practices[p.id] = p; this.practices.set(owner, p);
     this.enqueue('play', `practice:${p.id}`, { practiceId: p.id, petId: pet.id, levelId: pet.readyId });
     return this.practiceView(p);
@@ -103,14 +105,22 @@ export class CloudArena extends Arena {
     let prefix = run.actions || run._plan.prefix, result = replay(level.rows, prefix), executedCount = prefix.length - run._plan.prefix.length;
     // Stop at the first actual win even if the model included trailing moves.
     for (; executedCount < count && !result.won; executedCount++) {
+      const before = result;
       prefix += run._plan.actions[executedCount]; result = replay(level.rows, prefix);
+      if (['push', 'step'].includes(run.playStyle)) {
+        const changed = stateKey(before.state) !== stateKey(result.state), action = prefix.at(-1);
+        run._feedback = { action, changed, goalsFilled: result.state.boxes.filter(b => result.state.goals.includes(b)).length };
+        run._recent = [...(run._recent || []), { action, player: { x: result.state.player % 8, y: Math.floor(result.state.player / 8) }, changed }].slice(-12);
+        run._visits ||= {}; const key = stateKey(result.state); run._visits[key] = (run._visits[key] || 0) + 1;
+      }
     }
     Object.assign(run, { actions: prefix, steps: result.steps, elapsedMs: Math.max(1, until - run.startedAt), note: '正在逐步执行路线' });
     const completedAt = run._plan.at + executedCount * RULES.stepMs;
     if (result.won) this.completeRun(run, level, pet, true, completedAt, '游戏引擎已确认通关');
     else if (count === run._plan.actions.length) {
       delete run._plan;
-      if (this.brain.mode === 'model' && (run._round || 0) < 3 && until < run.deadline && prefix.length < RULES.maxActions) {
+      if (this.brain.mode === 'model' && (run._round || 0) < (['push', 'step'].includes(run.playStyle) ? 60 : 3) && until < run.deadline && prefix.length < RULES.maxActions) {
+        run.phase = 'deciding';
         run.note = '宠物正在根据棋盘重新思考'; this.enqueue('play', target.target, target);
       } else this.completeRun(run, level, pet, false, completedAt, '宠物本次未能通关');
     }
@@ -150,6 +160,9 @@ export class CloudArena extends Arena {
         const run = this.targetRun(job), match = this.s.challenges[job.matchId];
         if (!run || (match && match.status !== 'active') || !['pending', 'running'].includes(run.status)) { job.status = 'cancelled'; continue; }
         if (run.status === 'pending') Object.assign(run, { status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model });
+        run.playStyle ||= this.brain.mode === 'model' && this.brain.playEffort === 'none' ? 'push' : 'plan';
+        run.effort ??= this.brain.info().playEffort;
+        if (['push', 'step'].includes(run.playStyle)) { run.effort = this.brain.deepseek ? 'none' : null; run.phase = 'deciding'; run.turn = (run._round || 0) + 1; }
         run.note = '宠物正在独立思考路线';
       }
       job.status = 'running'; job.claim = randomUUID(); job.leaseUntil = this.now() + (preparing ? 510000 : job.kind === 'chat' ? 60000 : RULES.limitMs + 10000);
@@ -190,8 +203,13 @@ export class CloudArena extends Arena {
       if (!run || run.status !== 'running' || (match && match.status !== 'active')) return;
       run._round = (run._round || 0) + 1;
       if (result.timedOut || this.now() >= run.deadline) this.completeRun(run, this.s.levels[job.levelId], this.s.pets[job.petId], false, run.deadline, '宠物挑战超时');
-      else if (result.invalid) this.completeRun(run, this.s.levels[job.levelId], this.s.pets[job.petId], false, this.now(), '模型返回了非法操作，本次挑战失败');
-      else run._plan = { prefix: run.actions || '', actions: result.actions, at: this.now() };
+      else if (result.invalid) {
+        run._invalid = (run._invalid || 0) + 1;
+        if (['push', 'step'].includes(run.playStyle) && run._invalid < 3) {
+          run._feedback = { error: 'Invalid choice or action. Choose one allowed option; board unchanged.' };
+          run._plan = { prefix: run.actions || '', actions: '', at: this.now() };
+        } else this.completeRun(run, this.s.levels[job.levelId], this.s.pets[job.petId], false, this.now(), '模型返回了非法操作，本次挑战失败');
+      } else { run._invalid = 0; run.phase = 'acting'; run._plan = { prefix: run.actions || '', actions: result.actions, at: this.now() }; }
     }
     job.status = 'done'; job.finishedAt = this.now();
     this.tick();

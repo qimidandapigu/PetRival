@@ -5,6 +5,7 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const avatar = (pet, extra = '') => petMarkup(typeof pet === 'string' ? { species: pet } : pet, extra);
 const duration = ms => `${Math.floor(Math.max(0, ms || 0) / 60000).toString().padStart(2, '0')}:${Math.floor(Math.max(0, ms || 0) % 60000 / 1000).toString().padStart(2, '0')}`;
 const method = value => value === 'model' ? '大模型' : value === 'algorithm-starter' ? '算法入门题' : '算法 AI';
+const modelLabel = (name, effort) => `${name}${effort === 'high' ? ' · 高思考' : effort === 'low' ? ' · 低思考' : effort === 'none' ? ' · 关闭思考' : ''}`;
 const status = run => ({ pending: '还未开始', running: '正在挑战', cleared: '已通关', failed: '未通关', error: '服务暂不可用', not_applicable: '训练对手 · 无真人' }[run.status] || run.status);
 let state, game = null, submitting = false, replayTimer = null, clockOffset = 0, refreshing = false, pollingMatch = false, companion;
 const homeBindings = new WeakMap();
@@ -43,7 +44,7 @@ async function refresh() {
 }
 function render() {
   globalThis.petRivalPhoneLogin?.update(state);
-  $('#mode').textContent = state.mode === 'model' ? (state.model === 'deepseek-v4-pro' ? 'DeepSeek Pro' : state.model || '大模型已配置') : '算法 AI · 无需密钥';
+  $('#mode').textContent = state.mode === 'model' ? modelLabel(state.model === 'deepseek-v4-pro' ? 'DeepSeek Pro' : state.model || '大模型已配置', state.playEffort) : '算法 AI · 无需密钥';
   const mine = state.mine;
   if ($('#account-state')) $('#account-state').textContent = state.storage === 'D1' ? (state.signedIn ? '账号云存档' : '游客云存档 · 仅当前浏览器') : '本地服务存档';
   if ($('#score-ledger')) $('#score-ledger').hidden = state.storage !== 'D1';
@@ -106,10 +107,10 @@ function bindHome() {
   }));
   document.querySelectorAll('[data-open]').forEach(button => button.addEventListener('click', () => openMatch(button.dataset.open).catch(e => notify(e.message, true))));
 }
-async function startTogether() {
+async function startTogether(style) {
   const previous = game;
   try {
-    const result = await api('/api/practice/start', {});
+    const result = await api('/api/practice/start', { style });
     if (game !== previous) return;
     openPractice(result.level); game.practiceId = result.id; game.practiceAgent = result.run; drawAgent();
   } catch (err) { notify(err.message, true); }
@@ -164,13 +165,20 @@ function drawAgent() {
   drawAgentFeedback(run);
   const elapsed = run?.status === 'running' && run.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
   $('#agent-clock').textContent = run ? duration(elapsed || 0) : '00:00';
-  $('#agent-model').textContent = game.kind === 'replay' ? game.replayRun.model || method(game.replayRun.method) : run?.model || (state.mode === 'model' ? state.model || 'DeepSeek Pro' : '算法 AI');
+  const recorded = game.kind === 'replay' ? game.replayRun : run;
+  const model = game.kind === 'replay' ? recorded.model || method(recorded.method) : run?.model || (state.mode === 'model' ? state.model || 'DeepSeek Pro' : '算法 AI');
+  $('#agent-model').textContent = modelLabel(model, recorded ? recorded.effort : state.playEffort) + (['step', 'push'].includes(recorded?.playStyle) ? ' · 逐步行动' : '');
 }
 function drawAgentFeedback(run) {
-  const waiting = game.kind !== 'replay' && run?.status === 'running' && (!run.actions?.length || run.note?.includes('重新思考'));
+  const waiting = game.kind !== 'replay' && run?.status === 'running' && (run.phase === 'deciding' || !run.actions?.length || run.note?.includes('重新思考'));
   const elapsed = run?.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
   $('#agent-status').textContent = game.syncError ? '进度连接中断' : !run ? '本次仅真人试玩' : waiting ? (run.actions?.length ? '重新规划路线' : '等待第一步') : run.status === 'running' ? '正在执行动作' : status(run);
   $('#agent-note').classList.toggle('waiting', waiting && !game.syncError);
+  if (['step', 'push'].includes(run?.playStyle) && !game.syncError) {
+    $('#agent-status').textContent = run.status === 'running' ? (waiting ? '选择下一步' : '执行一步') : status(run);
+    $('#agent-note').textContent = `${run.note} · 第 ${run.turn || 1} 回合。${run.playStyle === 'push' ? 'AI 选择下一次推箱子，寻路工具负责走到位置；每一步立即展示。' : '每次执行一个动作，再观察新棋盘。'}可撤销、重来，计时继续。`;
+    return;
+  }
   $('#agent-note').textContent = game.syncError || (waiting ? `${run.actions?.length ? '宠物正在重新规划路线' : '宠物正在准备路线，尚未返回第一步'} · 已用 ${duration(elapsed)}。${(run.method || state.mode) === 'model' ? 'DeepSeek 会先思考整段路线，再开始移动，可能需要一分钟以上。' : ''}你可以继续玩右边，思考时间也计入 3 分钟时限。` : run?.note || (!run ? '这是单人试玩。返回主页选择“和宠物一起试跑”，即可让 AI 同时闯关。' : '宠物正在独立闯关。'));
 }
 async function pollMatch() {
@@ -280,10 +288,10 @@ function renderSide() {
     return;
   }
   const m = game.match, own = m.sides.find(s => s.own);
-  $('#agent-card').innerHTML = m.sides.map(s => `<div class="agent-block"><div class="agent-heading">${avatar(s.pet, 'small-pet')}<div><h3>${escape(s.pet.name)}${s.own ? ' · 你的搭档' : ''}</h3><p>${escape(s.agent.model || method(s.agent.method || state.mode))}</p></div></div><div class="run-line"><span>宠物</span><b>${status(s.agent)} ${s.agent.score == null ? '' : `${s.agent.score > 0 ? '+' : ''}${s.agent.score}`}</b></div><div class="run-line"><span>主人</span><b>${status(s.human)} ${s.human.score == null ? '' : `${s.human.score > 0 ? '+' : ''}${s.human.score}`}</b></div>${s.agent.actions && s.agent.status !== 'running' && ['cleared','failed'].includes(own.human.status) ? `<button data-replay="${s.pet.id}" class="wide">观看宠物回放 ▶</button>` : `<p class="fine">${s.own ? '左侧实时展示你的宠物进度。' : '对手的完整路线在你完成后显示。'}</p>`}</div>`).join('');
+  $('#agent-card').innerHTML = m.sides.map(s => `<div class="agent-block"><div class="agent-heading">${avatar(s.pet, 'small-pet')}<div><h3>${escape(s.pet.name)}${s.own ? ' · 你的搭档' : ''}</h3><p>${escape(modelLabel(s.agent.model || method(s.agent.method || state.mode), s.agent.effort))}</p></div></div><div class="run-line"><span>宠物</span><b>${status(s.agent)} ${s.agent.score == null ? '' : `${s.agent.score > 0 ? '+' : ''}${s.agent.score}`}</b></div><div class="run-line"><span>主人</span><b>${status(s.human)} ${s.human.score == null ? '' : `${s.human.score > 0 ? '+' : ''}${s.human.score}`}</b></div>${s.agent.actions && s.agent.status !== 'running' && ['cleared','failed'].includes(own.human.status) ? `<button data-replay="${s.pet.id}" class="wide">观看宠物回放 ▶</button>` : `<p class="fine">${s.own ? '左侧实时展示你的宠物进度。' : '对手的完整路线在你完成后显示。'}</p>`}</div>`).join('');
   $('#agent-card').querySelectorAll('[data-replay]').forEach(button => button.addEventListener('click', () => {
     const s = m.sides.find(s => s.pet.id === button.dataset.replay);
-    openReplay(s.level, s.agent.actions, `${s.pet.name} · 挑战回放`, `${method(s.agent.method)} · ${status(s.agent)} · ${s.agent.steps || 0} 步`, s.pet, s.agent);
+    openReplay(s.level, s.agent.actions, `${s.pet.name} · 挑战回放`, `${modelLabel(s.agent.model || method(s.agent.method), s.agent.effort)} · ${status(s.agent)} · ${s.agent.steps || 0} 步`, s.pet, s.agent);
   }));
   if (m.status === 'void') $('#result-card').innerHTML = `<div class="result"><h3>本场不计分</h3><p>${escape(m.voidReason)}</p></div>`;
   else if (m.status === 'done') {

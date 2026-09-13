@@ -125,7 +125,7 @@ export default {
           limit(arena, owner, 'prepare', 2); const pet = arena.mine(owner); if (!pet) throw new ApiError(409, '请先领养宠物');
           arena.prepare(pet, input.intent); responseStatus = 202; return arena.view(owner);
         }
-        if (path === '/api/practice/start' && request.method === 'POST') { limit(arena, owner, 'practice', 2); responseStatus = 202; return arena.startPractice(owner); }
+        if (path === '/api/practice/start' && request.method === 'POST') { limit(arena, owner, 'practice', 2); responseStatus = 202; return arena.startPractice(owner, input); }
         const practice = path.match(/^\/api\/practice\/([\w-]+)$/);
         if (practice && request.method === 'GET') return arena.getPractice(owner, practice[1]);
         if (path === '/api/challenges' && request.method === 'POST') {

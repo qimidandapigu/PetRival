@@ -58,14 +58,14 @@ test('model chat sends bounded companion facts and history, without private game
   assert.equal(brain.calls, 0, 'request releases its queue slot');
 });
 
-test('chat disables lengthy thinking while existing JSON gameplay defaults remain unchanged', async t => {
+test('chat retains its small token budget while gameplay defaults to disabled thinking', async t => {
   const { brain, requests } = await fixture(t);
   brain.deepseek = true; // Exercise vendor options against the local HTTP test double only.
   await brain.json([{ role: 'user', content: 'test gameplay defaults' }]);
   await brain.chat({ name: '团子', history: [{ role: 'user', content: '你好' }] });
   assert.equal(requests[0].max_tokens, 16384);
-  assert.deepEqual(requests[0].thinking, { type: 'enabled' });
-  assert.equal(requests[0].reasoning_effort, 'high');
+  assert.deepEqual(requests[0].thinking, { type: 'disabled' });
+  assert.equal(requests[0].reasoning_effort, 'none');
   assert.equal(requests[1].max_tokens, 1024);
   assert.deepEqual(requests[1].thinking, { type: 'disabled' });
   assert.ok(!('reasoning_effort' in requests[1]));

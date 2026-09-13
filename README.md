@@ -22,6 +22,7 @@
 - 默认像素宠物“小汤圆”，也可选择芽芽灵、火花狐、云朵兽；支持逐像素编辑、改名、JSON / PNG 导入导出。
 - 从宠物列表选择对手，立即使用双方缓存关卡开局。新题在后台生成，成功验证后才替换旧题；进行中的对局保持版本不变。
 - 左侧宠物 AI、右侧真人同时挑战对方的题，各自操作和计分。AI 思考时真人即可操作，左侧实时显示已执行步骤。自己的守擂关也能人宠同时试玩，不计排名。
+- 默认无思考、逐步行动：普通人宠试玩和宠物挑战都按次选择推箱子，走路工具负责到位；不再需要单独选择试验入口。[协议实测](docs/STEP-PLAY-TRIAL-2026-09-13.md)。
 - 方向键 / WASD 移动，Z 撤销，R 重来，也有屏幕方向按钮。
 - 操作回放由服务端重放验证；胜负、分数、时间由服务端计算，不信任浏览器上报的“已通关”。
 - 刷新后保留本地未提交操作；服务重启后保留身份、关卡、计时和历史成绩。
@@ -84,11 +85,12 @@ MODEL_CHAT_URL=https://api.deepseek.com/chat/completions
 MODEL_NAME=deepseek-v4-pro
 MODEL_API_KEY=your-local-secret
 MODEL_TOKEN_PARAMETER=max_tokens
+MODEL_PLAY_EFFORT=none
 ```
 
 不要把真实密钥发到聊天、写进前端或提交到 Git。此仓库默认忽略 `.env` 与运行数据。
 
-DeepSeek 官方请求使用 `thinking: {type: "enabled"}`、`reasoning_effort: "high"`、`max_tokens: 16384`，支持 JSON 地图和动作输出。Key 仅由服务端读取，不返回给浏览器或写入外观文件。算法求解器只负责独立验证关卡；比赛动作来自模型本次的规划。
+DeepSeek 出题固定使用高思考，闯关由 `MODEL_PLAY_EFFORT=none|low|none` 控制，默认是 `none`。`none` 关闭闯关思考并默认使用逐步推动协议；high/low 保留整段规划。无思考时，模型仍为 Pro；三档均使用 `max_tokens: 16384`。修改配置后需要重启服务才会用于新运行，正在进行的挑战不应为换配置而中断。Key 仅由服务端读取，不返回给浏览器或写入外观文件。算法求解器只负责独立验证关卡；比赛动作来自模型本次的规划。
 
 也保留兼容 Chat Completions 供应商适配：要求支持 `messages`、`response_format: {type: "json_object"}` 和 `choices[0].message.content`；可将 Token 参数改为 `max_completion_tokens`。这不等于所有供应商都已测试。
 
@@ -99,6 +101,19 @@ DeepSeek 官方请求使用 `thinking: {type: "enabled"}`、`reasoning_effort: "
 - 外部模型供应商将收到设计要求和关卡数据。当前没有将反馈用于训练、出售数据或后台收集用户私人内容的功能。
 
 协议参考：[DeepSeek 官方接入文档](https://api-docs.deepseek.com/zh-cn/)及[思考模式参数](https://api-docs.deepseek.com/guides/thinking_mode/)。一次成功样本不代表所有关卡都能在时限内解出。
+
+### 同题思考强度评测
+
+固定样本保存在 `test/fixtures/play-effort-levels.json`，包含 8 张既有模型关和 2 张训练关。运行下面的命令会使用本机 `.env` 中的 Key，真实调用 Pro 完成 30 场独立试验（每场最多 3 轮规划）；不修改游戏存档或榜单。
+
+```sh
+node --env-file=.env scripts/benchmark-play-effort.mjs --run
+node scripts/summarize-play-effort.mjs --write-report
+```
+
+原始记录写入忽略提交的 `.artifacts/effort-benchmark/results.json`，包含真实动作和数值用量，不包含凭据或思考正文。已有结果时脚本拒绝覆盖，避免把复测偷偷替换成最好的一次。只有 30 场完整结束并覆盖全部题目和模式组合，才允许生成完整报告。首步统计排除撞墙，通关由生产游戏引擎确认；失败和服务异常分别保留。
+
+[2026-09-13 真实对比](docs/PLAY-EFFORT-BENCHMARK-2026-09-13.md)：高思考 9/10 通关、首动中位数 80.70 秒；低思考 10/10、61.26 秒；关闭思考 0/10。这是旧整段规划协议的历史结果。用户现已选择默认无思考，4473/4474 的新试玩和挑战均使用逐步推动协议，出题保持 high。
 
 ## 自己设计像素宠物
 

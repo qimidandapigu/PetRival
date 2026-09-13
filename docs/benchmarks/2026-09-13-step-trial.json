@@ -1,0 +1,773 @@
+{
+  "startedAt": "2026-09-13T08:57:04.632Z",
+  "finishedAt": "2026-09-13T08:58:41.412Z",
+  "model": "deepseek-v4-pro",
+  "style": "step",
+  "effort": "none",
+  "providerSha256": "1bdabe2aff007f66ce666ccf96f43e4867fe456921ad6e685da7bf6b97af2a81",
+  "protocol": "One action then fresh coordinates, legal move previews, outcome and recent history; max 60 rounds / 180s. No solver or solution supplied.",
+  "trials": [
+    {
+      "level": "L01",
+      "sha256": "b7ba93872d008a8fa70b2f60fee4f4fafe30777b785090be3b529c9db8251859",
+      "startedAt": "2026-09-13T08:57:04.639Z",
+      "firstMoveMs": 2016.6348,
+      "transitions": [
+        {
+          "elapsedMs": 2016,
+          "action": "U",
+          "turn": 1,
+          "moves": 1
+        },
+        {
+          "elapsedMs": 3399,
+          "action": "D",
+          "turn": 2,
+          "moves": 2
+        },
+        {
+          "elapsedMs": 4824,
+          "action": "R",
+          "turn": 3,
+          "moves": 3
+        },
+        {
+          "elapsedMs": 6375,
+          "action": "U",
+          "turn": 4,
+          "moves": 4
+        },
+        {
+          "elapsedMs": 7253,
+          "action": "U",
+          "turn": 5,
+          "moves": 5
+        },
+        {
+          "elapsedMs": 9017,
+          "action": "L",
+          "turn": 6,
+          "moves": 6
+        },
+        {
+          "elapsedMs": 10490,
+          "action": "D",
+          "turn": 7,
+          "moves": 7
+        },
+        {
+          "elapsedMs": 12605,
+          "action": "U",
+          "turn": 8,
+          "moves": 8
+        },
+        {
+          "elapsedMs": 13944,
+          "action": "D",
+          "turn": 9,
+          "moves": 9
+        },
+        {
+          "elapsedMs": 16581,
+          "action": "R",
+          "turn": 10,
+          "moves": 10
+        },
+        {
+          "elapsedMs": 18011,
+          "action": "L",
+          "turn": 11,
+          "moves": 11
+        },
+        {
+          "elapsedMs": 19230,
+          "action": "R",
+          "turn": 12,
+          "moves": 12
+        },
+        {
+          "elapsedMs": 20126,
+          "action": "R",
+          "turn": 13,
+          "moves": 13
+        },
+        {
+          "elapsedMs": 21581,
+          "action": "D",
+          "turn": 14,
+          "moves": 14
+        },
+        {
+          "elapsedMs": 23078,
+          "action": "L",
+          "turn": 15,
+          "moves": 15
+        },
+        {
+          "elapsedMs": 24593,
+          "action": "L",
+          "turn": 16,
+          "moves": 16
+        },
+        {
+          "elapsedMs": 26430,
+          "action": "U",
+          "turn": 17,
+          "moves": 17
+        },
+        {
+          "elapsedMs": 27968,
+          "action": "D",
+          "turn": 18,
+          "moves": 18
+        },
+        {
+          "elapsedMs": 29806,
+          "action": "L",
+          "turn": 19,
+          "moves": 19
+        },
+        {
+          "elapsedMs": 31357,
+          "action": "U",
+          "turn": 20,
+          "moves": 20
+        },
+        {
+          "elapsedMs": 32854,
+          "action": "U",
+          "turn": 21,
+          "moves": 21
+        },
+        {
+          "elapsedMs": 34278,
+          "action": "R",
+          "turn": 22,
+          "moves": 22
+        },
+        {
+          "elapsedMs": 35575,
+          "action": "L",
+          "turn": 23,
+          "moves": 23
+        },
+        {
+          "elapsedMs": 37223,
+          "action": "R",
+          "turn": 24,
+          "moves": 24
+        },
+        {
+          "elapsedMs": 39042,
+          "action": "D",
+          "turn": 25,
+          "moves": 25
+        },
+        {
+          "elapsedMs": 41805,
+          "action": "U",
+          "turn": 26,
+          "moves": 26
+        },
+        {
+          "elapsedMs": 43588,
+          "action": "D",
+          "turn": 27,
+          "moves": 27
+        },
+        {
+          "elapsedMs": 45278,
+          "action": "U",
+          "turn": 28,
+          "moves": 28
+        },
+        {
+          "elapsedMs": 47369,
+          "action": "D",
+          "turn": 29,
+          "moves": 29
+        },
+        {
+          "elapsedMs": 49030,
+          "action": "L",
+          "turn": 30,
+          "moves": 30
+        },
+        {
+          "elapsedMs": 50666,
+          "action": "U",
+          "turn": 31,
+          "moves": 31
+        },
+        {
+          "elapsedMs": 53670,
+          "action": "D",
+          "turn": 32,
+          "moves": 32
+        },
+        {
+          "elapsedMs": 55824,
+          "action": "R",
+          "turn": 33,
+          "moves": 33
+        },
+        {
+          "elapsedMs": 57309,
+          "action": "L",
+          "turn": 34,
+          "moves": 34
+        },
+        {
+          "elapsedMs": 58661,
+          "action": "R",
+          "turn": 35,
+          "moves": 35
+        },
+        {
+          "elapsedMs": 60146,
+          "action": "U",
+          "turn": 36,
+          "moves": 36
+        },
+        {
+          "elapsedMs": 61624,
+          "action": "L",
+          "turn": 37,
+          "moves": 37
+        },
+        {
+          "elapsedMs": 63018,
+          "action": "L",
+          "turn": 38,
+          "moves": 38
+        },
+        {
+          "elapsedMs": 64119,
+          "action": "D",
+          "turn": 39,
+          "moves": 39
+        },
+        {
+          "elapsedMs": 65534,
+          "action": "L",
+          "turn": 40,
+          "moves": 40
+        },
+        {
+          "elapsedMs": 67273,
+          "action": "U",
+          "turn": 41,
+          "moves": 41
+        },
+        {
+          "elapsedMs": 68189,
+          "action": "U",
+          "turn": 42,
+          "moves": 42
+        },
+        {
+          "elapsedMs": 69770,
+          "action": "U",
+          "turn": 43,
+          "moves": 43
+        },
+        {
+          "elapsedMs": 71485,
+          "action": "D",
+          "turn": 44,
+          "moves": 44
+        },
+        {
+          "elapsedMs": 73013,
+          "action": "D",
+          "turn": 45,
+          "moves": 45
+        },
+        {
+          "elapsedMs": 74352,
+          "action": "D",
+          "turn": 46,
+          "moves": 46
+        },
+        {
+          "elapsedMs": 75898,
+          "action": "R",
+          "turn": 47,
+          "moves": 47
+        },
+        {
+          "elapsedMs": 77437,
+          "action": "D",
+          "turn": 48,
+          "moves": 48
+        },
+        {
+          "elapsedMs": 78437,
+          "action": "R",
+          "turn": 49,
+          "moves": 49
+        },
+        {
+          "elapsedMs": 79771,
+          "action": "R",
+          "turn": 50,
+          "moves": 50
+        },
+        {
+          "elapsedMs": 81263,
+          "action": "U",
+          "turn": 51,
+          "moves": 51
+        },
+        {
+          "elapsedMs": 82183,
+          "action": "U",
+          "turn": 52,
+          "moves": 52
+        },
+        {
+          "elapsedMs": 83983,
+          "action": "D",
+          "turn": 53,
+          "moves": 53
+        },
+        {
+          "elapsedMs": 85468,
+          "action": "R",
+          "turn": 54,
+          "moves": 54
+        },
+        {
+          "elapsedMs": 87450,
+          "action": "L",
+          "turn": 55,
+          "moves": 55
+        },
+        {
+          "elapsedMs": 89387,
+          "action": "L",
+          "turn": 56,
+          "moves": 56
+        },
+        {
+          "elapsedMs": 90779,
+          "action": "U",
+          "turn": 57,
+          "moves": 57
+        },
+        {
+          "elapsedMs": 92258,
+          "action": "L",
+          "turn": 58,
+          "moves": 58
+        },
+        {
+          "elapsedMs": 93692,
+          "action": "D",
+          "turn": 59,
+          "moves": 59
+        },
+        {
+          "elapsedMs": 95200,
+          "action": "L",
+          "turn": 60,
+          "moves": 60
+        }
+      ],
+      "error": null,
+      "actions": "UDRUULDUDRLRRDLLUDLUURLRDUDUDLUDRLRULLDLUUUDDDRDRRUUDRLLULDL",
+      "steps": 60,
+      "elapsedMs": 95200,
+      "method": "model",
+      "model": "deepseek-v4-pro",
+      "effort": "none",
+      "playStyle": "step",
+      "phase": "done",
+      "turn": 60,
+      "note": "已达到 60 回合，本次未通关",
+      "success": false,
+      "wallMs": 95201.3128
+    },
+    {
+      "level": "L08",
+      "sha256": "25b4f7780180d753a3a188cb1e664c6e2c76a9c5d442558384f75e710b391398",
+      "startedAt": "2026-09-13T08:57:04.635Z",
+      "firstMoveMs": 1480.3111000000001,
+      "transitions": [
+        {
+          "elapsedMs": 1478,
+          "action": "U",
+          "turn": 1,
+          "moves": 1
+        },
+        {
+          "elapsedMs": 3061,
+          "action": "R",
+          "turn": 2,
+          "moves": 2
+        },
+        {
+          "elapsedMs": 4454,
+          "action": "U",
+          "turn": 3,
+          "moves": 3
+        },
+        {
+          "elapsedMs": 5999,
+          "action": "R",
+          "turn": 4,
+          "moves": 4
+        },
+        {
+          "elapsedMs": 8088,
+          "action": "U",
+          "turn": 5,
+          "moves": 5
+        },
+        {
+          "elapsedMs": 9624,
+          "action": "D",
+          "turn": 6,
+          "moves": 6
+        },
+        {
+          "elapsedMs": 11054,
+          "action": "R",
+          "turn": 7,
+          "moves": 7
+        },
+        {
+          "elapsedMs": 12806,
+          "action": "D",
+          "turn": 8,
+          "moves": 8
+        },
+        {
+          "elapsedMs": 14352,
+          "action": "U",
+          "turn": 9,
+          "moves": 9
+        },
+        {
+          "elapsedMs": 15751,
+          "action": "L",
+          "turn": 10,
+          "moves": 10
+        },
+        {
+          "elapsedMs": 17401,
+          "action": "U",
+          "turn": 11,
+          "moves": 11
+        },
+        {
+          "elapsedMs": 18249,
+          "action": "D",
+          "turn": 12,
+          "moves": 12
+        },
+        {
+          "elapsedMs": 19940,
+          "action": "D",
+          "turn": 13,
+          "moves": 13
+        },
+        {
+          "elapsedMs": 21764,
+          "action": "U",
+          "turn": 14,
+          "moves": 14
+        },
+        {
+          "elapsedMs": 23631,
+          "action": "U",
+          "turn": 15,
+          "moves": 15
+        },
+        {
+          "elapsedMs": 25098,
+          "action": "L",
+          "turn": 16,
+          "moves": 16
+        },
+        {
+          "elapsedMs": 26433,
+          "action": "U",
+          "turn": 17,
+          "moves": 16
+        },
+        {
+          "elapsedMs": 27577,
+          "action": "D",
+          "turn": 18,
+          "moves": 17
+        },
+        {
+          "elapsedMs": 29128,
+          "action": "R",
+          "turn": 19,
+          "moves": 18
+        },
+        {
+          "elapsedMs": 30740,
+          "action": "L",
+          "turn": 20,
+          "moves": 19
+        },
+        {
+          "elapsedMs": 32558,
+          "action": "R",
+          "turn": 21,
+          "moves": 20
+        },
+        {
+          "elapsedMs": 34121,
+          "action": "D",
+          "turn": 22,
+          "moves": 21
+        },
+        {
+          "elapsedMs": 35461,
+          "action": "L",
+          "turn": 23,
+          "moves": 22
+        },
+        {
+          "elapsedMs": 37207,
+          "action": "U",
+          "turn": 24,
+          "moves": 23
+        },
+        {
+          "elapsedMs": 39631,
+          "action": "D",
+          "turn": 25,
+          "moves": 24
+        },
+        {
+          "elapsedMs": 41455,
+          "action": "R",
+          "turn": 26,
+          "moves": 25
+        },
+        {
+          "elapsedMs": 42661,
+          "action": "U",
+          "turn": 27,
+          "moves": 26
+        },
+        {
+          "elapsedMs": 45449,
+          "action": "L",
+          "turn": 28,
+          "moves": 27
+        },
+        {
+          "elapsedMs": 47692,
+          "action": "U",
+          "turn": 29,
+          "moves": 28
+        },
+        {
+          "elapsedMs": 48716,
+          "action": "L",
+          "turn": 30,
+          "moves": 29
+        },
+        {
+          "elapsedMs": 50492,
+          "action": "D",
+          "turn": 31,
+          "moves": 30
+        },
+        {
+          "elapsedMs": 51765,
+          "action": "D",
+          "turn": 32,
+          "moves": 31
+        },
+        {
+          "elapsedMs": 53668,
+          "action": "U",
+          "turn": 33,
+          "moves": 32
+        },
+        {
+          "elapsedMs": 54880,
+          "action": "R",
+          "turn": 34,
+          "moves": 33
+        },
+        {
+          "elapsedMs": 56643,
+          "action": "U",
+          "turn": 35,
+          "moves": 34
+        },
+        {
+          "elapsedMs": 58049,
+          "action": "D",
+          "turn": 36,
+          "moves": 35
+        },
+        {
+          "elapsedMs": 59619,
+          "action": "U",
+          "turn": 37,
+          "moves": 36
+        },
+        {
+          "elapsedMs": 61261,
+          "action": "D",
+          "turn": 38,
+          "moves": 37
+        },
+        {
+          "elapsedMs": 62786,
+          "action": "L",
+          "turn": 39,
+          "moves": 38
+        },
+        {
+          "elapsedMs": 64329,
+          "action": "D",
+          "turn": 40,
+          "moves": 39
+        },
+        {
+          "elapsedMs": 66092,
+          "action": "U",
+          "turn": 41,
+          "moves": 40
+        },
+        {
+          "elapsedMs": 67086,
+          "action": "D",
+          "turn": 42,
+          "moves": 41
+        },
+        {
+          "elapsedMs": 68614,
+          "action": "R",
+          "turn": 43,
+          "moves": 42
+        },
+        {
+          "elapsedMs": 70771,
+          "action": "U",
+          "turn": 44,
+          "moves": 43
+        },
+        {
+          "elapsedMs": 72886,
+          "action": "R",
+          "turn": 45,
+          "moves": 44
+        },
+        {
+          "elapsedMs": 74444,
+          "action": "U",
+          "turn": 46,
+          "moves": 45
+        },
+        {
+          "elapsedMs": 76868,
+          "action": "D",
+          "turn": 47,
+          "moves": 46
+        },
+        {
+          "elapsedMs": 78038,
+          "action": "R",
+          "turn": 48,
+          "moves": 47
+        },
+        {
+          "elapsedMs": 79774,
+          "action": "D",
+          "turn": 49,
+          "moves": 48
+        },
+        {
+          "elapsedMs": 81262,
+          "action": "U",
+          "turn": 50,
+          "moves": 49
+        },
+        {
+          "elapsedMs": 82650,
+          "action": "L",
+          "turn": 51,
+          "moves": 50
+        },
+        {
+          "elapsedMs": 83584,
+          "action": "U",
+          "turn": 52,
+          "moves": 51
+        },
+        {
+          "elapsedMs": 85214,
+          "action": "D",
+          "turn": 53,
+          "moves": 52
+        },
+        {
+          "elapsedMs": 87295,
+          "action": "D",
+          "turn": 54,
+          "moves": 53
+        },
+        {
+          "elapsedMs": 88791,
+          "action": "R",
+          "turn": 55,
+          "moves": 54
+        },
+        {
+          "elapsedMs": 90778,
+          "action": "U",
+          "turn": 56,
+          "moves": 55
+        },
+        {
+          "elapsedMs": 92257,
+          "action": "L",
+          "turn": 57,
+          "moves": 56
+        },
+        {
+          "elapsedMs": 93626,
+          "action": "R",
+          "turn": 58,
+          "moves": 57
+        },
+        {
+          "elapsedMs": 95205,
+          "action": "D",
+          "turn": 59,
+          "moves": 58
+        },
+        {
+          "elapsedMs": 96772,
+          "action": "L",
+          "turn": 60,
+          "moves": 59
+        }
+      ],
+      "error": null,
+      "actions": "URURUDRDULUDDUULUDRLRDLUDRULULDDURUDUDLDUDRURUDRDULUDDRULRDL",
+      "steps": 59,
+      "elapsedMs": 96772,
+      "method": "model",
+      "model": "deepseek-v4-pro",
+      "effort": "none",
+      "playStyle": "step",
+      "phase": "done",
+      "turn": 60,
+      "note": "已达到 60 回合，本次未通关",
+      "success": false,
+      "wallMs": 96774.376
+    }
+  ]
+}

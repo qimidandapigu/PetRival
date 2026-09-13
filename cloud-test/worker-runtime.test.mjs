@@ -16,7 +16,8 @@ test('actual Worker runtime reaches model HTTP for gameplay and rejects redirect
     let raw = ''; for await (const chunk of req) raw += chunk;
     const request = JSON.parse(raw), board = JSON.parse(request.messages[1].content).rows;
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ actions: solve(board).actions }) } }] }));
+    const input = JSON.parse(request.messages[1].content);
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(input.availablePushes ? { choice: input.availablePushes[0].id } : { actions: solve(board).actions }) } }] }));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
