@@ -6,6 +6,7 @@
 
 - 在 CloudBase 身份认证 → 登录方式中开启短信验证码登录，选择云开发内置短信通道。
 - 在环境安全域名中允许 `petrival.clear-oasis-2741.chatgpt.site`。
+- 具体入口为「环境配置 → 安全来源 → 安全域名 → 添加域名」，填写上面的完整主机名（不带 `https://`、路径或末尾斜杠），保存后约 1–2 分钟生效。短信开关与安全来源是两个配置项。
 - Sites 运行环境变量设置 `CLOUDBASE_ENV_ID`，重新部署后生效。不需要把腾讯云管理员密钥放进网站。
 - 当前选择环境：`xiaotangyuan-d2g249l4be819a63c`（用户确认上海、个人版）。2026-09-13 用户确认已开启短信登录；真实短信收取与首次登录仍待本人在网站完成。
 
@@ -26,3 +27,11 @@ Worker 将 SDK access token 发送到该环境的 `/auth/v1/user/me` 验证，�
 用户环境真实认证接口此前已以无效测试 token 只读探测，返回明确的 token 格式校验错误，确认接口可达。未向任何测试号码发短信。环境管理员已表示开启短信登录，安全域名是否生效及真实收码仍需本人在网站输入手机号与验证码完成端到端验收。
 
 官方参考：[Web v3 认证](https://docs.cloudbase.net/api-reference/webv3/authentication)、[获取当前用户](https://docs.cloudbase.net/http-api/auth/user-me)、[短信登录](https://docs.cloudbase.net/authentication-v2/method/sms-login)。
+
+## 2026-09-13 真实发码故障定位
+
+用户明确授权重试一次后，在生产页面点击获取验证码。浏览器捕获到认证 `/auth/v1/verification` 预检返回 403，`PreflightMissingAllowOriginHeader`；短信 POST 被浏览器拦截。另以不含手机号的 OPTIONS 请求复核：`Origin: https://petrival.clear-oasis-2741.chatgpt.site` 返回 403、没有允许来源；`Origin: http://localhost` 返回 204、`Access-Control-Allow-Origin: http://localhost`。因此当前阻塞是游戏域名的跨域授权，不是验证码输入错误。待环境管理员添加上述安全域名后，先复核 OPTIONS，再由用户完成收码及登录验收，不自动继续发短信。
+
+页面对网络/CORS错误提供安全来源配置指引，同时保留网络故障可能性，不把所有网络错误一概判成白名单问题。未保存用户手机号或验证码。
+
+配置参考：[CloudBase 安全来源](https://docs.cloudbase.net/envconfig/security/intro)。

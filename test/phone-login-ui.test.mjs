@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-function fixture({ conflict = false } = {}) {
+function fixture({ conflict = false, sendError } = {}) {
   const elements = new Map(), calls = [], sent = [], checked = []; let reloads = 0;
   class Element {
     constructor() { this.events = {}; this.value = ''; this.hidden = false; this.disabled = false; }
@@ -17,7 +17,7 @@ function fixture({ conflict = false } = {}) {
   let button, dialog;
   const document = { querySelector: () => get('host'), body: new Element(), createElement(tag) { const e = new Element(); if (tag === 'button') button = e; else if (tag === 'dialog') dialog = e; return e; } };
   const context = { document, setInterval() {}, Date, location: { reload() { reloads++; } },
-    __sdk: { createAuth: () => ({ async signInWithOtp(params) { sent.push(params); return { data: { verifyOtp: async params => { checked.push(params); return { data: { session: { access_token: 'test-access' } } }; } } }; } }) },
+    __sdk: { createAuth: () => ({ async signInWithOtp(params) { sent.push(params); if (sendError) return { error: sendError }; return { data: { verifyOtp: async params => { checked.push(params); return { data: { session: { access_token: 'test-access' } } }; } } }; } }) },
     fetch: async (path, options) => {
       const body = options?.body && JSON.parse(options.body); calls.push({ path, body });
       let data = path === '/api/auth/config' ? { enabled: true, envId: 'test' } : { ok: true }, ok = true;
@@ -62,4 +62,17 @@ test('phone UI requires explicit choice before using an existing account save', 
   assert.match(f.get('phone-status').textContent, /两份存档不会合并/);
   await f.get('phone-existing').fire('click'); assert.equal(f.reloads(), 1);
   assert.equal(f.calls.at(-1).body.useExisting, true);
+});
+
+test('SMS network and CORS failures explain safe-domain setup and leave guest play available', async () => {
+  for (const sendError of [new TypeError('Failed to fetch'), { code: 'unreachable' }, { code: 'unknown', error_description: 'request:fail' }, { code: 'CORS_ERROR' }]) {
+    const f = fixture({ sendError }); await f.button.fire('click');
+    f.get('phone-number').value = '13800001234'; await f.get('phone-send').fire('click');
+    assert.match(f.get('phone-status').textContent, /安全来源/);
+    assert.equal(f.get('phone-submit').disabled, true);
+    assert.equal(f.get('phone-send').disabled, false);
+    assert.equal(f.get('phone-skip').disabled, false);
+    assert.equal(f.sent.length, 1); assert.equal(f.reloads(), 0);
+    await f.get('phone-skip').fire('click'); assert.equal(f.dialog.open, false);
+  }
 });

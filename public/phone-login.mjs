@@ -44,10 +44,13 @@ if (host) {
     $('phone-skip').disabled = busy;
   }
   function providerError(error) {
-    const kind = String(error?.code || '') + ' ' + String(error?.message || '');
+    const kind = [error?.code, error?.category, error?.message, error?.error_description].filter(Boolean).join(' ');
+    if (/domain|origin|cors|域名/i.test(kind)) return '游戏域名未获准访问登录服务。请站点作者在 CloudBase「环境配置 → 安全来源 → 安全域名」添加当前游戏域名，保存后等待 1–2 分钟再试。';
+    // Browsers deliberately hide CORS response details from fetch/XHR. Do not
+    // claim a missing allowlist for every network failure; give both next steps.
+    if (/network|failed to fetch|load failed|request:fail|unreachable|timeout|timed out|网络|超时/i.test(kind)) return '无法连接短信登录服务。请检查网络；若游戏能正常打开，请站点作者检查 CloudBase「环境配置 → 安全来源」是否已允许当前游戏域名。';
     if (/rate|frequen|limit|频繁/i.test(kind)) return '请求过于频繁，请稍后再试。';
     if (/disabled|not.enabled|not.support|未开启|未启用/i.test(kind)) return '短信登录尚未开通，请联系站点作者开启短信登录。';
-    if (/domain|origin|域名/i.test(kind)) return '网站域名尚未获准登录，请联系站点作者配置安全域名。';
     if (/captcha|验证码|verification|otp|expired/i.test(kind)) return '验证未通过或已过期，请检查验证码，必要时重新获取。';
     return '暂时无法完成短信验证，请稍后重试。';
   }
