@@ -1,4 +1,6 @@
 import { parse, replay, renderRows, RULES } from '/shared/game.mjs'; import { petMarkup } from '/shared/pet.mjs'; import { openPetEditor } from '/pet-editor.mjs'; import { createCompanionHub } from '/companion.mjs';
+import { openBoxing } from '/boxing.mjs';
+import { openSkillEditor } from '/skill-editor.mjs';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -8,6 +10,7 @@ const method = value => value === 'model' ? '大模型' : value === 'algorithm-s
 const modelLabel = (name, effort) => `${name}${effort === 'high' ? ' · 高思考' : effort === 'low' ? ' · 低思考' : effort === 'none' ? ' · 关闭思考' : ''}`;
 const status = run => ({ pending: '还未开始', running: '正在挑战', cleared: '已通关', failed: '未通关', error: '服务暂不可用', not_applicable: '训练对手 · 无真人' }[run.status] || run.status);
 let state, game = null, submitting = false, replayTimer = null, clockOffset = 0, refreshing = false, pollingMatch = false, companion;
+let boxingLobby = null;
 const homeBindings = new WeakMap();
 let backgroundStarted = false;
 function bind(selector, event, handler) {
@@ -36,19 +39,21 @@ async function api(path, data) {
 async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
-    state = await api('/api/state'); clockOffset = state.now - Date.now(); render();
+    state = await api('/api/state'); if (state.mine?.selectedGame === 'boxing') boxingLobby = await api('/api/boxing'); clockOffset = state.now - Date.now(); render();
     if (state.storage === 'D1' && !backgroundStarted) {
       backgroundStarted = true; runBackgroundLane('foreground'); runBackgroundLane('foreground'); runBackgroundLane('preparation');
     }
   } catch (e) { notify(e.message, true); } finally { refreshing = false; }
 }
 function render() {
+  const isBoxing = state.mine?.selectedGame === 'boxing';
+  if ($('#ranking-title')) $('#ranking-title').textContent = isBoxing ? '打拳排行榜' : '推箱子排行榜';
   globalThis.petRivalPhoneLogin?.update(state);
   $('#mode').textContent = state.mode === 'model' ? modelLabel(state.model === 'deepseek-v4-pro' ? 'DeepSeek Pro' : state.model || '大模型已配置', state.playEffort) : '算法 AI · 无需密钥';
   const mine = state.mine;
   if ($('#account-state')) $('#account-state').textContent = state.storage === 'D1' ? (state.signedIn ? '账号云存档' : '游客云存档 · 仅当前浏览器') : '本地服务存档';
-  if ($('#score-ledger')) $('#score-ledger').hidden = state.storage !== 'D1';
-  companion ||= createCompanionHub({ api, notify, refresh, onPlay: startTogether, onEditPet: editPet });
+  if ($('#score-ledger')) $('#score-ledger').hidden = isBoxing || state.storage !== 'D1';
+  companion ||= createCompanionHub({ api, notify, refresh, onPlay: () => state.mine?.selectedGame === 'boxing' ? document.querySelector('#rival-section')?.scrollIntoView({ behavior: 'smooth' }) : startTogether(), onEditPet: editPet });
   companion.update(state);
   if ($('#hero-pet')) $('#hero-pet').innerHTML = avatar(mine || 'xiaotangyuan');
   if (!document.activeElement?.closest('#my-pet') && (mine || !$('#adopt'))) {
@@ -60,14 +65,22 @@ function render() {
       <div class="section-heading"><div><span class="eyebrow">YOUR FIRST COMPANION</span><h2>领养你的第一位搭档</h2></div><span class="badge">访客试玩</span></div>
       <form id="adopt"><div class="species-picker"><label><input type="radio" name="species" value="xiaotangyuan" checked>${avatar('xiaotangyuan')}<span>小汤圆</span></label><label><input type="radio" name="species" value="sprout">${avatar('sprout')}<span>芽芽灵</span></label><label><input type="radio" name="species" value="fox">${avatar('fox')}<span>火花狐</span></label><label><input type="radio" name="species" value="ghost">${avatar('ghost')}<span>云朵兽</span></label></div><label for="pet-name">给搭档起个名字</label><div class="input-row"><input id="pet-name" name="name" maxlength="16" required value="小汤圆" placeholder="例如：会推箱子的栗子"><button class="primary">一起出发 →</button></div><label class="checkbox"><input name="defense" type="checkbox" checked>允许其他宠物直接发起异步挑战（未开始的对局不会判负）</label><p class="fine">游客身份保存在当前浏览器。支持手机号登录时，可在页面顶部登录并绑定宠物，换设备继续。</p></form>`;
   }
-  const rivals = state.pets.filter(p => p.ready && p.defense);
-  $('#rivals').innerHTML = rivals.map(p => `<article class="rival-card">${avatar(p)}<span class="badge ${p.bot ? '' : 'ready'}">${p.bot ? '训练宠物 · 不计榜' : '玩家宠物 · 可挑战'}</span><h3>${escape(p.name)}</h3><p>${p.bot ? '先练一场，熟悉人宠应战' : `${p.score} 积分 · ${p.wins} 胜 ${p.losses} 负`}</p><div class="rival-bottom"><span class="ready-text">● 题已备好</span><button data-challenge="${p.id}" ${!mine ? 'disabled' : ''}>挑战它 ↗</button></div></article>`).join('') || '<div class="empty">还没有其他宠物。将页面分享给同一服务器上的另一位玩家。</div>';
-  $('#leaderboard').innerHTML = state.leaderboard.length ? state.leaderboard.map((p, i) => `<div class="rank-row ${p.id === mine?.id ? 'is-mine' : ''}"><span class="rank-no">${String(i + 1).padStart(2, '0')}</span>${avatar(p, 'tiny')}<div><b>${escape(p.name)}${p.id === mine?.id ? ' <small>你</small>' : ''}</b><small>${p.played} 场 · 计分用时 ${duration(p.rankMs)}</small></div><strong>${p.score}</strong></div>`).join('') : '<div class="empty">第一位上榜的宠物，<br>会是你的搭档吗？</div>';
-  $('#matches').innerHTML = state.challenges.length ? state.challenges.map(m => {
+  for (const selector of ['#prepare', '#practice', '#practice-ai']) { const node = $(selector); if (node) node.hidden = isBoxing; }
+  if (isBoxing && mine) { const score = boxingLobby?.leaderboard.find(p => p.id === mine.id)?.score || 0; const value = $('#my-pet .pet-score strong'); if (value) value.textContent = score; }
+  const rivals = isBoxing ? boxingLobby?.pets || [] : state.pets.filter(p => p.ready && p.defense);
+  $('#rivals').innerHTML = rivals.map(p => `<article class="rival-card">${avatar(p)}<span class="badge ${p.bot ? '' : 'ready'}">${p.bot ? '训练宠物 · 不计榜' : '玩家宠物 · 可挑战'}</span><h3>${escape(p.name)}</h3><p>${isBoxing ? '宠物对战 ＋ 真人同时应战' : p.bot ? '先练一场，熟悉人宠应战' : `${p.score} 积分 · ${p.wins} 胜 ${p.losses} 负`}</p><div class="rival-bottom"><span class="ready-text">● ${isBoxing ? '可以开打' : '题已备好'}</span><button data-challenge="${p.id}" ${!mine ? 'disabled' : ''}>挑战它 ↗</button></div></article>`).join('') || '<div class="empty">还没有其他宠物。将页面分享给同一服务器上的另一位玩家。</div>';
+  const ladder = isBoxing ? boxingLobby?.leaderboard || [] : state.leaderboard;
+  $('#leaderboard').innerHTML = ladder.length ? ladder.map((p, i) => `<div class="rank-row ${p.id === mine?.id ? 'is-mine' : ''}"><span class="rank-no">${String(i + 1).padStart(2, '0')}</span>${avatar(p, 'tiny')}<div><b>${escape(p.name)}${p.id === mine?.id ? ' <small>你</small>' : ''}</b><small>${p.played} 场 · 计分用时 ${duration(p.rankMs)}</small></div><strong>${p.score}</strong></div>`).join('') : '<div class="empty">第一位上榜的宠物，<br>会是你的搭档吗？</div>';
+  $('#matches').innerHTML = isBoxing ? (boxingLobby?.matches.length ? boxingLobby.matches.map(m => `<div class="match-row"><div><b>${m.names.map(escape).join(' vs ')}</b><small>打拳 · ${m.training ? '训练场' : '积分场'} · ${m.status === 'done' ? '已结算' : m.status === 'void' ? '已作废' : '进行中'}</small></div><button data-boxing-open="${m.id}">${m.status === 'active' ? '进入挑战' : '查看结果'}</button></div>`).join('') : '<div class="empty">还没有拳赛，选择上面的宠物开始吧。</div>') : state.challenges.length ? state.challenges.map(m => {
     const own = m.sides.find(s => s.own), rival = m.sides.find(s => !s.own);
     const label = m.status === 'void' ? '已作废 · 不计分' : m.status === 'done' ? (m.training ? '训练完成' : !m.winner ? '平局' : m.winner === mine?.id ? '获胜' : '惜败') : status(own.human);
     return `<div class="match-row">${avatar(rival.pet, 'tiny')}<div><b>${escape(mine.name)} <span class="muted">vs</span> ${escape(rival.pet.name)}</b><small>${m.training ? '训练赛' : '积分挑战'} · ${label}</small></div><button data-open="${m.id}">${m.status === 'active' && ['pending', 'running'].includes(own.human.status) ? '进入挑战' : '查看结果'}</button></div>`;
   }).join('') : '<div class="empty horizontal">还没有挑战记录。挑一位对手，开始第一场吧。</div>';
+  if ($('#rules-card')) {
+    const card = $('#rules-card');
+    if (!card.sokobanRules) card.sokobanRules = card.innerHTML;
+    card.innerHTML = isBoxing ? '<span class="eyebrow">HOW TO PLAY</span><h3>两场一起打。</h3><ol><li><b>宠物对战</b><span>左边双方正常 30 血</span></li><li><b>你也上场</b><span>右边对手 150 血、5 倍攻击</span></li><li><b>合计得分</b><span>胜 +100，负 −20，平 0</span></li></ol><p>A/D 移动，J 轻拳，K 重拳，按住 L 防御。45 秒，时间到比剩余血量百分比；训练不计排名。</p>' : card.sokobanRules;
+  }
   bindHome();
 }
 function editPet() {
@@ -76,7 +89,13 @@ function editPet() {
     await api('/api/pets/appearance', input); await refresh(); notify('新形象已保存，回小院看看吧！');
   } });
 }
+async function showBoxing(id) {
+  boxingLobby = await api('/api/boxing');
+  await openBoxing(await api('/api/boxing/' + id), boxingLobby, () => refresh());
+}
 function bindHome() {
+  document.querySelectorAll('[data-boxing-open]').forEach(button => button.addEventListener('click', () => showBoxing(button.dataset.boxingOpen).catch(e => notify(e.message, true))));
+  bind('#edit-competition-skill', 'click', () => openSkillEditor(state.mine, { api, refresh, notify }));
   bind('#load-ledger', 'click', async () => {
     try {
       const result = await api('/api/score-ledger');
@@ -102,7 +121,7 @@ function bindHome() {
   });
   document.querySelectorAll('[data-challenge]').forEach(button => button.addEventListener('click', async () => {
     button.disabled = true;
-    try { const m = await api('/api/challenges', { opponentId: button.dataset.challenge }); await openMatch(m.id); await refresh(); }
+    try { if (state.mine?.selectedGame === 'boxing') { const m = await api('/api/boxing', { opponentId: button.dataset.challenge }); await openBoxing(m, boxingLobby, () => refresh()); await refresh(); return; } const m = await api('/api/challenges', { opponentId: button.dataset.challenge }); await openMatch(m.id); await refresh(); }
     catch (err) { notify(err.message, true); button.disabled = false; }
   }));
   document.querySelectorAll('[data-open]').forEach(button => button.addEventListener('click', () => openMatch(button.dataset.open).catch(e => notify(e.message, true))));
@@ -176,7 +195,7 @@ function drawAgentFeedback(run) {
   $('#agent-note').classList.toggle('waiting', waiting && !game.syncError);
   if (['step', 'push'].includes(run?.playStyle) && !game.syncError) {
     $('#agent-status').textContent = run.status === 'running' ? (waiting ? '选择下一步' : '执行一步') : status(run);
-    $('#agent-note').textContent = `${run.note} · 第 ${run.turn || 1} 回合。${run.playStyle === 'push' ? 'AI 选择下一次推箱子，寻路工具负责走到位置；每一步立即展示。' : '每次执行一个动作，再观察新棋盘。'}可撤销、重来，计时继续。`;
+    $('#agent-note').textContent = `${run.note} · 第 ${run.turn || 1} 回合。${run.playStyle === 'push' ? 'AI 选择下一次推箱子，寻路工具负责走到位置；每一步立即展示。' : '每次执行一个动作，再观察新棋盘。'}可撤销、重来，计时继续。${run.pushPolicy === 'preview' ? ` 路线试演${run.stageGoal ? ` · 目标 (${run.stageGoal.target.x},${run.stageGoal.target.y})` : ''}。` : ''}${run.skillStatus ? ` 技能「${run.skillStatus.name}」：${run.skillStatus.message} · 已使用 ${run.skillUses || 0} 次。` : ''}`;
     return;
   }
   $('#agent-note').textContent = game.syncError || (waiting ? `${run.actions?.length ? '宠物正在重新规划路线' : '宠物正在准备路线，尚未返回第一步'} · 已用 ${duration(elapsed)}。${(run.method || state.mode) === 'model' ? 'DeepSeek 会先思考整段路线，再开始移动，可能需要一分钟以上。' : ''}你可以继续玩右边，思考时间也计入 3 分钟时限。` : run?.note || (!run ? '这是单人试玩。返回主页选择“和宠物一起试跑”，即可让 AI 同时闯关。' : '宠物正在独立闯关。'));
@@ -360,7 +379,13 @@ async function runBackgroundLane(lane) {
   catch { delay = 3000; }
   setTimeout(() => runBackgroundLane(lane), delay);
 }
-try { await api('/api/session', {}); await refresh(); }
+try { await api('/api/session', {}); await refresh();
+  if (location.hash.startsWith('#boxing') && state?.mine) {
+    const matchId = location.hash.split(':')[1];
+    if (state.mine.selectedGame !== 'boxing') { await api('/api/pets/game', { gameId: 'boxing' }); await refresh(); }
+    if (matchId) await showBoxing(matchId);
+  }
+}
 catch (e) { $('#my-pet').innerHTML = '<div class="empty">连接失败，请刷新页面重试。</div>'; notify(e.message, true); }
 
 if (document.modelContext?.registerTool) {

@@ -9,6 +9,7 @@ const collections = {
   challenges: { table: 'matches', columns: ['id', 'status', 'training', 'created_at', 'winner', 'data'], values: (id, v) => [id, v.status, +v.training, v.createdAt, v.winner || null, JSON.stringify(v)] },
   practices: { table: 'practices', columns: ['id', 'owner', 'data'], values: (id, v) => [id, v.owner, JSON.stringify(v)] },
   jobs: { table: 'jobs', columns: ['id', 'kind', 'status', 'data'], values: (id, v) => [id, v.kind, v.status, JSON.stringify(v)] },
+  boxingMatches: { table: 'boxing_matches', columns: ['id', 'data'], values: (id, v) => [id, JSON.stringify(v)] },
 };
 export class CloudStore {
   static async load(db) {

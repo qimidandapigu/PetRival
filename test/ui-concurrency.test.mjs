@@ -6,7 +6,7 @@ import { generate, replay, renderRows, RULES } from '../shared/game.mjs';
 
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 function ui(overrides = {}) {
-  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8').replace(/^import.*$/gm, '');
   const events = new Map();
   const practice = { disabled: false, addEventListener(type, handler) { events.set(type, handler); }, removeEventListener(type) { events.delete(type); } };
   const noop = { disabled: false, open: false, textContent: '', hidden: false, classList: { toggle() {} }, addEventListener() {}, removeEventListener() {}, showModal() { this.open = true; } };
@@ -121,7 +121,7 @@ test('AI practice startup cannot take over a different practice opened while wai
 });
 
 test('an opponent replay animates only the AI lane and keeps that pet identity in the summary', () => {
-  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8'), nodes = new Map();
+  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8').replace(/^import.*$/gm, ''), nodes = new Map();
   let advance;
   function node(selector) {
     if (!nodes.has(selector)) {

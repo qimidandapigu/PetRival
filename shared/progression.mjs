@@ -1,5 +1,6 @@
 export const GAMES = Object.freeze([
   Object.freeze({ id: 'sokoban', name: '推箱子', description: '和宠物一起规划路线，把每个箱子推到目标点。', available: true }),
+  Object.freeze({ id: 'boxing', name: '打拳', description: '宠物对打，真人同时迎战；拳台积分单独排名。', available: true }),
 ]);
 
 export const XP_PER_CLEAR = 40;
@@ -12,7 +13,7 @@ const MILESTONES = [
 
 export function ensureGrowth(pet) {
   if (!pet.growth || !Array.isArray(pet.growth.clearedLevels)) pet.growth = { clearedLevels: [] };
-  if (pet.selectedGame !== 'sokoban') pet.selectedGame = 'sokoban';
+  if (!GAMES.some(game => game.id === pet.selectedGame)) pet.selectedGame = 'sokoban';
   return pet.growth;
 }
 

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { generate, replay, renderRows, RULES } from '../shared/game.mjs';
 
-const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8').replace(/^import.*$/gm, '');
 const context = vm.createContext({ Date });
 vm.runInContext(source.slice(source.indexOf('function completionView('), source.indexOf('function drawCompletion(')) + '\nthis.view = completionView;', context);
 const won = { won: true, steps: 11 };

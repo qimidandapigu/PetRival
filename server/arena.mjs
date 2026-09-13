@@ -3,6 +3,9 @@ import { generate, parse, replay, RULES, runScore, compareTeams } from '../share
 import { PET_SPECIES, defaultAppearance, parsePetFile } from '../shared/pet.mjs';
 import { GAMES, ensureGrowth, progressionView, recordVerifiedClear } from '../shared/progression.mjs';
 import { LIFE_ACTIONS, ensureLife, advanceLife, requestLifeAction, lifeView } from '../shared/life.mjs';
+import { checkSkill, skillView, skillDecision, boxingSkillDecision } from './competition-skill.mjs';
+import { newBout, fighterObservation } from '../shared/boxing.mjs';
+import { stepObservation, reachablePushes } from './step-observation.mjs';
 
 export class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const need = (condition, message, status = 400) => { if (!condition) throw new ApiError(status, message); };
@@ -91,11 +94,35 @@ export class Arena {
   }
   publicPet(p) {
     return { id: p.id, name: p.name, species: p.species, appearance: p.appearance || defaultAppearance(p.species), bot: p.bot, score: p.score, rankMs: p.rankMs, played: p.played, wins: p.wins, losses: p.losses, draws: p.draws, ready: !!p.readyId, preparing: p.preparing, defense: p.defense, method: this.s.levels[p.readyId]?.method,
-      selectedGame: p.selectedGame, progression: progressionView(p) };
+      selectedGame: p.selectedGame, progression: progressionView(p), competition: skillView(p) };
+  }
+  checkCompetitionSkill(owner, input) {
+    const pet = this.mine(owner); need(pet, '请先领养宠物', 409);
+    const { program, ...result } = checkSkill(input);
+    if (result.valid) {
+      const state = parse(this.s.levels[pet.readyId].rows);
+      const observation = stepObservation(state, { turn: 1, remainingMs: RULES.limitMs });
+      observation.availablePushes = reachablePushes(state).map(({ actions, ...choice }) => choice);
+      result.preview = input.gameId === 'boxing' ? boxingSkillDecision(input, fighterObservation(newBout(), 0)).status : skillDecision(input, observation).status;
+      if (result.preview?.state === 'error') { result.valid = false; result.error = result.preview.message; }
+    }
+    return result;
+  }
+  updateCompetitionSkill(owner, input) {
+    const pet = this.mine(owner); need(pet, '请先领养宠物', 409);
+    need(Object.keys(input).every(k => ['revision', 'skill'].includes(k)) && Object.hasOwn(input, 'skill'), '需要技能和版本号', 422);
+    need(Number.isSafeInteger(input.revision) && input.revision === (pet.skillRevision || 0), '技能已在其他页面修改，请重新打开编辑器', 409);
+    if (input.skill !== null) {
+      const result = this.checkCompetitionSkill(owner, input.skill);
+      need(result.valid, result.error, 422);
+      pet.competitionSkill = { ...input.skill, tokens: result.tokens, tokenizer: result.tokenizer };
+    } else pet.competitionSkill = null;
+    pet.skillRevision = (pet.skillRevision || 0) + 1;
+    this.store.save(); return skillView(pet, true);
   }
   selectGame(owner, input) {
     const pet = this.mine(owner); need(pet, '请先领养宠物', 409);
-    need(input.gameId === 'sokoban', '目前只开放推箱子', 422);
+    need(GAMES.some(game => game.id === input.gameId && game.available), '目前只开放推箱子和打拳', 422);
     pet.selectedGame = input.gameId; this.store.save();
     return this.view(owner);
   }
@@ -176,7 +203,7 @@ export class Arena {
     const pet = this.mine(owner);
     const pets = Object.values(this.s.pets).map(p => this.publicPet(p));
     return { now: this.now(), rules: RULES, games: GAMES, mode: this.brain.mode, model: this.brain.info().model, playEffort: this.brain.info().playEffort,
-      mine: pet ? { ...this.publicPet(pet), life: lifeView(pet, this.now()), intent: pet.intent, prepareError: pet.prepareError, level: this.levelView(pet.readyId) } : null,
+      mine: pet ? { ...this.publicPet(pet), competition: skillView(pet, true), life: lifeView(pet, this.now()), intent: pet.intent, prepareError: pet.prepareError, level: this.levelView(pet.readyId) } : null,
       pets: pets.filter(p => p.id !== pet?.id),
       leaderboard: pets.filter(p => !p.bot).sort((a, b) => b.score - a.score || a.rankMs - b.rankMs || a.id.localeCompare(b.id)),
       challenges: pet ? Object.values(this.s.challenges).filter(m => m.sides.some(s => s.petId === pet.id)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 30).map(m => this.matchView(m, owner)) : [],
@@ -194,7 +221,8 @@ export class Arena {
       sides: m.sides.map(s => {
         const isOwn = this.s.pets[s.petId].owner === owner;
         const safe = (run, ownLive = false) => {
-          const { actions, ...rest } = run;
+          const { actions, ...rest } = Object.fromEntries(Object.entries(run).filter(([k]) => !k.startsWith('_')));
+          if (!ownLive && !reveal) delete rest.skillStatus;
           return { ...rest, ...(ownLive || (reveal && run.status !== 'running') ? { actions } : {}) };
         };
         return { pet: this.publicPet(this.s.pets[s.petId]), own: isOwn, level: this.levelView(s.levelId), human: safe(s.human), agent: safe(s.agent, isOwn), total: s.total };
@@ -213,7 +241,7 @@ export class Arena {
     need(!matches.some(m => m.status === 'active' && m.sides.some(s => s.petId === me.id) && m.sides.some(s => s.petId === rival.id)), '双方已有进行中的挑战', 409);
     need(!matches.some(m => m.status === 'done' && m.sides.some(s => s.petId === me.id && s.levelId === rival.readyId) && m.sides.some(s => s.petId === rival.id && s.levelId === me.readyId)), '这组题已交手，换好新题再挑战', 409);
     const match = { id: randomUUID(), training: rival.bot, status: 'active', createdAt: this.now(), expiresAt: this.now() + 24 * 3600000,
-      sides: [me, rival].map((p, i) => ({ petId: p.id, levelId: [rival, me][i].readyId, human: p.bot ? { status: 'not_applicable', score: null, actions: '' } : pendingRun(), agent: pendingRun() })) };
+      sides: [me, rival].map((p, i) => ({ petId: p.id, levelId: [rival, me][i].readyId, human: p.bot ? { status: 'not_applicable', score: null, actions: '' } : pendingRun(), agent: { ...pendingRun(), _skill: structuredClone(p.competitionSkill || null) } })) };
     this.s.challenges[match.id] = match; this.store.save();
     // Enqueue only: no generation/model await occurs before the challenge is returned.
     this.task(() => { this.launchAgents(match); this.prepare(me); this.prepare(rival); });
@@ -225,12 +253,12 @@ export class Arena {
       const key = `${match.id}:${side.petId}`;
       if (side.agent.status !== 'pending' || this.playing.has(key)) continue;
       const controller = new AbortController(); this.agentControllers.set(key, controller);
-      this.playing.add(key); side.agent = { ...pendingRun(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs,
+      this.playing.add(key); side.agent = { ...pendingRun(), _skill: side.agent._skill || null, status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs,
         method: this.brain.mode, model: this.brain.info().model, effort: this.brain.info().playEffort, note: '正在思考路线，你可以同时开始闯关' }; this.store.save();
       this.task(async () => {
         try {
           const rows = [...this.s.levels[side.levelId].rows];
-          const result = await this.brain.play(rows, { signal: controller.signal, onProgress: progress => {
+          const result = await this.brain.play(rows, { skill: side.agent._skill, signal: controller.signal, onProgress: progress => {
             if (this.closed || match.status !== 'active' || side.agent.status !== 'running') return;
             // Persist the engine-executed prefix, never the model's unexecuted plan.
             Object.assign(side.agent, progress); this.store.save();
@@ -322,13 +350,13 @@ export class Arena {
   async practice(owner) {
     const pet = this.mine(owner); need(pet, '请先领养宠物');
     const level = this.levelView(pet.readyId);
-    const result = await this.brain.play(level.rows);
+    const result = await this.brain.play(level.rows, { skill: structuredClone(pet.competitionSkill || null) });
     const verified = replay(level.rows, result.actions);
     const success = verified.won && !result.timedOut && result.elapsedMs <= RULES.limitMs;
     if (!this.closed && success) { recordVerifiedClear(pet, level.hash, this.now()); this.store.save(); }
     return { level, ...result, won: success, ranked: false };
   }
-  practiceView(practice) { return { id: practice.id, level: practice.level, run: { ...practice.run }, ranked: false }; }
+  practiceView(practice) { return { id: practice.id, level: practice.level, run: Object.fromEntries(Object.entries(practice.run).filter(([k]) => !k.startsWith('_'))), ranked: false }; }
   getPractice(owner, id) {
     const practice = this.practices.get(owner);
     need(practice && practice.id === id, '试玩不存在或无权访问', 404);
@@ -342,14 +370,14 @@ export class Arena {
     // Only the most recent practice per owner is retained; inactive sessions expire after one hour.
     for (const [key, previous] of this.practices) if (previous.run.status !== 'running' && this.now() - previous.createdAt > 3600000) this.practices.delete(key);
     const practice = { id: randomUUID(), level: this.levelView(pet.readyId), createdAt: this.now(),
-      run: { ...pendingRun(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model, effort: this.brain.info().playEffort,
+      run: { ...pendingRun(), _skill: structuredClone(pet.competitionSkill || null), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model, effort: this.brain.info().playEffort,
         playStyle: this.brain.mode === 'model' ? style : 'plan',
         ...(style !== 'plan' && this.brain.mode === 'model' ? { effort: this.brain.deepseek ? 'none' : null, phase: 'deciding' } : {}),
         note: style !== 'plan' ? '正在选择下一步' : '正在思考路线，你可以同时开始闯关' } };
     this.practices.set(owner, practice);
     this.task(async () => {
       try {
-        const result = await this.brain.play(practice.level.rows, { style, onProgress: progress => { if (!this.closed) Object.assign(practice.run, progress); } });
+        const result = await this.brain.play(practice.level.rows, { style, skill: practice.run._skill, onProgress: progress => { if (!this.closed) Object.assign(practice.run, progress); } });
         if (this.closed) return;
         const success = replay(practice.level.rows, result.actions).won && !result.timedOut && result.elapsedMs <= RULES.limitMs;
         practice.run = { ...practice.run, ...result, status: success ? 'cleared' : 'failed', ...runScore(success, result.elapsedMs) };

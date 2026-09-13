@@ -33,12 +33,14 @@ async function fixture(t, directory) {
 test('game catalog and game selection are owner-scoped; old saves begin at level 1 without puzzle-proof XP', async t => {
   const f = await fixture(t), a = await f.client('芽芽');
   const view = (await a.call('/api/state')).body;
-  assert.deepEqual(view.games.map(game => [game.id, game.name, game.available]), [['sokoban', '推箱子', true]]);
+  assert.deepEqual(view.games.map(game => [game.id, game.name, game.available]), [['sokoban', '推箱子', true], ['boxing', '打拳', true]]);
   assert.equal(view.mine.selectedGame, 'sokoban');
   assert.equal(view.mine.progression.level, 1); assert.equal(view.mine.progression.xp, 0);
   assert.equal(view.mine.progression.skills.every(skill => !skill.unlocked && skill.uses === 0), true);
   assert.ok(Array.isArray(view.mine.level.rows), 'existing puzzle view remains compatible');
   assert.equal((await a.call('/api/pets/game', { gameId: 'chess' })).status, 422);
+  assert.equal((await a.call('/api/pets/game', { gameId: 'boxing' })).body.mine.selectedGame, 'boxing');
+  assert.equal((await a.call('/api/state')).body.mine.selectedGame, 'boxing');
   assert.equal((await a.call('/api/pets/game', { gameId: 'sokoban', owner: 'someone-else' })).status, 200);
   assert.equal((await f.raw('/api/pets/game', { gameId: 'sokoban' })).status, 401);
   delete a.pet.growth; delete a.pet.selectedGame; delete a.pet.chat; f.store.save();

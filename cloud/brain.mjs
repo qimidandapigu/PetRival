@@ -9,6 +9,7 @@ export async function executeJob(brain, job, signal) {
   if (job.kind === 'generate') return brain.generate(job.intent, job.seed);
   if (job.kind === 'chat') return brain.chat(job.context);
   const current = replay(job.rows, job.run.actions || '');
+  if (job.run._skill?.gameId === 'sokoban') return decideStep(brain, job, signal);
   if (brain.mode === 'algorithm') {
     const result = solve(renderRows(current.state), 50000);
     return { actions: result.actions || '' };

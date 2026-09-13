@@ -5,10 +5,19 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './store.mjs';
 import { Jobs } from './jobs.mjs';
 import { PetBrain } from './provider.mjs';
+import { BoxingArena } from './boxing-arena.mjs';
 import { Arena, ApiError } from './arena.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const files = {
+  '/boxing': ['public/boxing.html', 'text/html; charset=utf-8'],
+  '/boxing.html': ['public/boxing.html', 'text/html; charset=utf-8'],
+  '/boxing.mjs': ['public/boxing.mjs', 'text/javascript; charset=utf-8'],
+  '/boxing.css': ['public/boxing.css', 'text/css; charset=utf-8'],
+  '/ai-comparison.html': ['public/ai-comparison.html', 'text/html; charset=utf-8'],
+  '/ai-comparison.mjs': ['public/ai-comparison.mjs', 'text/javascript; charset=utf-8'],
+  '/ai-comparison.css': ['public/ai-comparison.css', 'text/css; charset=utf-8'],
+  '/ai-comparison-data.json': ['public/ai-comparison-data.json', 'application/json'],
   '/': ['public/index.html', 'text/html; charset=utf-8'],
   '/app.mjs': ['public/app.mjs', 'text/javascript; charset=utf-8'],
   '/style.css': ['public/style.css', 'text/css; charset=utf-8'],
@@ -19,6 +28,8 @@ const files = {
   '/shared/life.mjs': ['shared/life.mjs', 'text/javascript; charset=utf-8'],
   '/pet-editor.mjs': ['public/pet-editor.mjs', 'text/javascript; charset=utf-8'],
   '/pet-editor.css': ['public/pet-editor.css', 'text/css; charset=utf-8'],
+  '/skill-editor.mjs': ['public/skill-editor.mjs', 'text/javascript; charset=utf-8'],
+  '/skill-editor.css': ['public/skill-editor.css', 'text/css; charset=utf-8'],
   '/companion.mjs': ['public/companion.mjs', 'text/javascript; charset=utf-8'],
   '/companion.css': ['public/companion.css', 'text/css; charset=utf-8'],
   '/world-scene.mjs': ['public/world-scene.mjs', 'text/javascript; charset=utf-8'],
@@ -45,6 +56,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
   if (typeof cookieName !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(cookieName)) throw new Error('COOKIE_NAME 需要 1–64 个字母、数字、下划线或连字符');
   const cookiePrefix = `${cookieName}=`;
   const jobs = new Jobs(2), brain = new PetBrain(jobs, env, brainOptions), store = new Store(dataDir), arena = new Arena(store, brain, { now });
+  const boxing = new BoxingArena(arena, brain, { now });
   const buckets = new Map();
   const rate = (key, max) => {
     const n = now(); let b = buckets.get(key);
@@ -59,6 +71,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
+      if (req.method === 'GET' && ['/boxing', '/boxing.html'].includes(path)) { res.writeHead(302, { Location: '/#boxing' }); res.end(); return; }
       if (req.method === 'GET' && files[path]) {
         const [file, type] = files[path];
         const content = await readFile(resolve(root, file));
@@ -72,7 +85,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (req.method === 'POST') {
         if (!req.headers['content-type']?.startsWith('application/json')) throw new ApiError(415, '需要 application/json');
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) throw new ApiError(403, '拒绝跨站请求');
-        rate(`ip:${req.socket.remoteAddress}`, 180);
+        rate(`ip:${req.socket.remoteAddress}`, path.startsWith('/api/boxing') ? 1200 : 180);
       }
       if (path === '/api/session' && req.method === 'POST') {
         if (owner) return json(200, { ok: true });
@@ -85,8 +98,18 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (!owner) throw new ApiError(401, '请先建立访客身份');
       if (path === '/api/state' && req.method === 'GET') return json(200, arena.view(owner));
       const input = req.method === 'POST' ? await body(req) : {};
+      if (path === '/api/boxing' && req.method === 'GET') return json(200, boxing.view(owner));
+      if (path === '/api/boxing' && req.method === 'POST') { rate(`boxing:${owner}`, 6); return json(201, boxing.create(owner, input.opponentId)); }
+      const boxingRoute = path.match(/^\/api\/boxing\/([\w-]+)(?:\/(start|input|surrender))?$/);
+      if (boxingRoute) {
+        const [, id, action] = boxingRoute;
+        if (!action && req.method === 'GET') return json(200, boxing.get(owner, id));
+        if (req.method === 'POST' && action) { rate(`boxing-input:${owner}`, 600); return json(200, action === 'input' ? boxing.input(owner, id, input) : action === 'start' ? boxing.start(owner, id) : boxing.surrender(owner, id)); }
+      }
       if (path === '/api/pets' && req.method === 'POST') { arena.createPet(owner, input); return json(201, arena.view(owner)); }
       if (path === '/api/pets/game' && req.method === 'POST') return json(200, arena.selectGame(owner, input));
+      if (path === '/api/pets/skill/check' && req.method === 'POST') return json(200, arena.checkCompetitionSkill(owner, input));
+      if (path === '/api/pets/skill' && req.method === 'POST') return json(200, arena.updateCompetitionSkill(owner, input));
       if (path === '/api/pets/chat' && req.method === 'GET') return json(200, arena.chatView(owner));
       if (path === '/api/pets/chat' && req.method === 'POST') {
         rate(`chat:${owner}`, 20);
@@ -135,9 +158,9 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
   }, 1000);
   timer.unref();
   arena.resume();
-  return { server, arena, store, brain, jobs,
+  return { server, arena, boxing, store, brain, jobs,
     async close() {
-      clearInterval(timer); arena.closed = true; brain.close();
+      clearInterval(timer); arena.closed = true; await boxing.close(); brain.close();
       await jobs.close(); await arena.idle();
       if (server.listening) await new Promise(r => { server.close(r); server.closeIdleConnections(); });
     },

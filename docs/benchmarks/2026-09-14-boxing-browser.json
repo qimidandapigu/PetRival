@@ -1,0 +1,222 @@
+{
+  "model": "deepseek-v4-pro",
+  "effort": "none",
+  "records": [
+    {
+      "id": "98e45f50-7bb5-4572-bfd9-0bef097fd856",
+      "status": "done",
+      "training": true,
+      "petHP": [
+        64,
+        50
+      ],
+      "petFrames": 900,
+      "petDecisions": [
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318604881,
+          "calls": 22
+        },
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318604239,
+          "calls": 20
+        }
+      ],
+      "humanHP": [
+        0,
+        500
+      ],
+      "humanMaxHP": [
+        100,
+        500
+      ],
+      "humanPower": [
+        1,
+        5
+      ],
+      "humanSeq": 52,
+      "humanDecisions": [
+        null,
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318603484,
+          "calls": 19
+        }
+      ],
+      "results": {
+        "sides": [
+          {
+            "pet": {
+              "score": 100,
+              "rankMs": 45000
+            },
+            "human": {
+              "score": -20,
+              "rankMs": 45000
+            },
+            "score": 80,
+            "rankMs": 90000
+          },
+          {
+            "pet": {
+              "score": -20,
+              "rankMs": 45000
+            },
+            "human": null,
+            "score": -20,
+            "rankMs": 45000
+          }
+        ],
+        "winner": 0
+      }
+    },
+    {
+      "id": "be0e56a8-bd23-45b2-b26e-24f512aac109",
+      "status": "done",
+      "training": true,
+      "petHP": [
+        50,
+        48
+      ],
+      "petFrames": 900,
+      "petDecisions": [
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318750334,
+          "calls": 25
+        },
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318750432,
+          "calls": 25
+        }
+      ],
+      "humanHP": [
+        0,
+        500
+      ],
+      "humanMaxHP": [
+        100,
+        500
+      ],
+      "humanPower": [
+        1,
+        5
+      ],
+      "humanSeq": 38,
+      "humanDecisions": [
+        null,
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318733593,
+          "calls": 14
+        }
+      ],
+      "results": {
+        "sides": [
+          {
+            "pet": {
+              "score": 100,
+              "rankMs": 45000
+            },
+            "human": {
+              "score": -20,
+              "rankMs": 45000
+            },
+            "score": 80,
+            "rankMs": 90000
+          },
+          {
+            "pet": {
+              "score": -20,
+              "rankMs": 45000
+            },
+            "human": null,
+            "score": -20,
+            "rankMs": 45000
+          }
+        ],
+        "winner": 0
+      }
+    },
+    {
+      "id": "70d165a1-5191-4cf0-abe0-113714bce4e7",
+      "status": "done",
+      "training": true,
+      "petHP": [
+        54,
+        48
+      ],
+      "petFrames": 900,
+      "petDecisions": [
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318977356,
+          "calls": 26
+        },
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318977137,
+          "calls": 24
+        }
+      ],
+      "humanHP": [
+        0,
+        498
+      ],
+      "humanMaxHP": [
+        100,
+        500
+      ],
+      "humanPower": [
+        1,
+        5
+      ],
+      "humanSeq": 37,
+      "humanDecisions": [
+        null,
+        {
+          "source": "model",
+          "status": "ready",
+          "at": 1789318960759,
+          "calls": 13
+        }
+      ],
+      "results": {
+        "sides": [
+          {
+            "pet": {
+              "score": 100,
+              "rankMs": 45000
+            },
+            "human": {
+              "score": -20,
+              "rankMs": 45000
+            },
+            "score": 80,
+            "rankMs": 90000
+          },
+          {
+            "pet": {
+              "score": -20,
+              "rankMs": 45000
+            },
+            "human": null,
+            "score": -20,
+            "rankMs": 45000
+          }
+        ],
+        "winner": 0
+      }
+    }
+  ]
+}

@@ -22,7 +22,7 @@ export function stepObservation(state, { turn, remainingMs, recent = [], visits 
 export { stateKey };
 
 // Walk-only pathfinding with boxes fixed. Enumerate available single pushes; never solve the puzzle.
-export function reachablePushes(state) {
+function walkingPaths(state) {
   const paths = new Map([[state.player, '']]), queue = [state.player];
   for (let index = 0; index < queue.length; index++) {
     const from = queue[index];
@@ -32,12 +32,47 @@ export function reachablePushes(state) {
       paths.set(to, paths.get(from) + action); queue.push(to);
     }
   }
+  return paths;
+}
+
+// Walking inside one connected area leaves the same push decisions available.
+export function pushPositionKey(state) {
+  return `${[...state.boxes].sort((a, b) => a - b).join(',')}:${Math.min(...walkingPaths(state).keys())}`;
+}
+
+// Geometry of a single box on an otherwise empty board, not a multi-box solver.
+// A reachable goal is only a possibility; an unreachable one proves a dead square.
+function goalReachability(state) {
+  return state.goals.map(goal => {
+    const seen = new Set([goal]), queue = [goal];
+    for (let n = 0; n < queue.length; n++) {
+      for (const [dx, dy] of Object.values(DIRECTIONS)) {
+        const previous = queue[n] - dx - dy * 8, standing = previous - dx - dy * 8;
+        if ([previous, standing].some(p => p < 0 || p > 63 || state.walls.includes(p)) ||
+            Math.abs(previous % 8 - queue[n] % 8) > 1 || Math.abs(standing % 8 - previous % 8) > 1 || seen.has(previous)) continue;
+        seen.add(previous); queue.push(previous);
+      }
+    }
+    return seen;
+  });
+}
+
+export function reachablePushes(state) {
+  const paths = walkingPaths(state), reachable = goalReachability(state);
   return state.boxes.flatMap(box => Object.entries(DIRECTIONS).flatMap(([direction, [dx, dy]]) => {
     const delta = dx + dy * 8, behind = box - delta, to = box + delta;
     if (!paths.has(behind) || state.walls.includes(to) || state.boxes.includes(to)) return [];
     const onGoal = state.goals.includes(to);
+    const other = state.boxes.find(p => p !== box);
+    const goalOptions = reachable.flatMap((s, index) => s.has(to) ? [index] : []);
+    const compatibleGoals = goalOptions.filter(index => reachable.some((s, otherIndex) => otherIndex !== index && s.has(other)));
+    const assignmentPossible = compatibleGoals.length > 0;
     return [{ id: `push-${box}-${direction}`, box: point(box), direction, boxTo: point(to),
       wasOnGoal: state.goals.includes(box), onGoal,
+      reachableGoalsIgnoringOtherBox: goalOptions.map(i => point(state.goals[i])),
+      compatibleGoalsForThisBox: compatibleGoals.map(i => point(state.goals[i])),
+      deadlock: !assignmentPossible,
+      ...(assignmentPossible ? {} : { warning: 'After this push the two boxes cannot reach distinct goals even with the other box ignored. Undo or choose another push.' }),
       corner: !onGoal && (state.walls.includes(to - 1) || state.walls.includes(to + 1)) && (state.walls.includes(to - 8) || state.walls.includes(to + 8)),
       walkSteps: paths.get(behind).length, actions: paths.get(behind) + direction }];
   }));

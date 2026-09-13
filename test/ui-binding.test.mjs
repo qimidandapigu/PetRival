@@ -6,7 +6,7 @@ import { replay, generate } from '../shared/game.mjs';
 
 test('polling must not multiply a preserved adoption form submission', async () => {
   // Execute the actual entrypoint's registration code. Only DOM/fetch boundaries are substituted.
-  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8').replace(/^import.*$/gm, '');
   const form = new EventTarget(); form.querySelector = () => ({ disabled: false });
   const noop = { addEventListener() {}, disabled: false };
   const nodes = { '#adopt': form, '#refresh': noop, '#close-game': noop, '#game-dialog': noop, '#undo': noop, '#restart': noop, '#give-up': noop, '#completion-primary': noop, '#completion-dismiss': noop, '#continue-practice': noop, '#retry-match': noop };
@@ -24,7 +24,7 @@ test('polling must not multiply a preserved adoption form submission', async () 
 });
 
 test('reopening a locally solved but unacknowledged run retries the verified submission', async () => {
-  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8').replace(/^import.*$/gm, '');
   const g = generate(56), level = { id: 'level', rows: g.rows };
   const match = { id: 'match', status: 'active', training: true, sides: [
     { own: true, pet: { id: 'mine' }, level, human: { status: 'running' } },

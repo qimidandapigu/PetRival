@@ -4,6 +4,7 @@ import { makeBrain, executeJob } from './brain.mjs';
 import { ApiError } from '../server/arena.mjs';
 import { createHash } from 'node:crypto';
 import { accountSession, authConfig, verifyCloudBase, signInAccount, signOutAccount } from './auth.mjs';
+import { CloudBoxing, executeBoxing } from './boxing.mjs';
 
 const json = (data, status = 200, extra = {}) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...extra } });
 const cookieToken = req => (req.headers.get('cookie') || '').split(';').map(s => s.trim()).find(s => s.startsWith('petrival='))?.slice(9);
@@ -66,12 +67,25 @@ async function work(request, env, brain) {
   return new Response(stream, { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 }
 
+async function boxingWork(request, env, brain) {
+  const apply = fn => runTransaction(env, brain, arena => {
+    const owner = identity(request, arena); if (!owner) throw new ApiError(401, '请先建立访客身份');
+    return fn(new CloudBoxing(arena, brain), owner);
+  });
+  const claim = await apply((boxing, owner) => boxing.claim(owner));
+  if (!claim) return json({ worked: false });
+  try { const result = await executeBoxing(brain, claim); await apply(boxing => boxing.finish(claim, result)); return json({ worked: true }); }
+  catch { await apply(boxing => boxing.fail(claim)); return json({ worked: true, failed: true }); }
+  finally { brain.close(); }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url), path = url.pathname;
     try {
       if (!path.startsWith('/api/')) {
-        const response = await env.ASSETS.fetch(request);
+        if (path === '/boxing' || path === '/boxing.html') return Response.redirect(new URL('/#boxing', url), 302);
+        const response = await env.ASSETS.fetch(url.pathname === path ? request : new Request(url, request));
         const headers = new Headers(response.headers);
         headers.set('x-content-type-options', 'nosniff');
         headers.set('referrer-policy', 'strict-origin-when-cross-origin');
@@ -99,6 +113,7 @@ export default {
       }
       if (path === '/api/health' && request.method === 'GET') { await env.DB.prepare('SELECT revision FROM arena_meta LIMIT 1').all(); return json({ ok: true, game: 'PetRival', storage: 'D1', ...brain.info() }); }
       if (path === '/api/work' && request.method === 'POST') return await work(request, env, brain);
+      if (path === '/api/boxing/work' && request.method === 'POST') return await boxingWork(request, env, brain);
       let responseStatus = 200, responseHeaders = {};
       const result = await runTransaction(env, brain, (arena, store) => {
         const owner = identity(request, arena);
@@ -110,7 +125,18 @@ export default {
           return { ok: true, signedIn: false };
         }
         if (!owner) throw new ApiError(401, '请先登录或建立访客身份');
-        if (request.method === 'POST') limit(arena, owner, 'writes', 180);
+        if (request.method === 'POST') limit(arena, owner, path.startsWith('/api/boxing') ? 'boxing-writes' : 'writes', path.startsWith('/api/boxing') ? 600 : 180);
+        if (path.startsWith('/api/boxing')) {
+          const boxing = new CloudBoxing(arena, brain);
+          if (path === '/api/boxing' && request.method === 'GET') return boxing.view(owner);
+          if (path === '/api/boxing' && request.method === 'POST') { limit(arena, owner, 'boxing-create', 6); responseStatus = 201; return boxing.create(owner, input.opponentId); }
+          const route = path.match(/^\/api\/boxing\/([\w-]+)(?:\/(start|input|surrender))?$/);
+          if (route) {
+            const [, id, action] = route;
+            if (!action && request.method === 'GET') return boxing.get(owner, id);
+            if (request.method === 'POST' && action) return action === 'input' ? boxing.input(owner, id, input) : action === 'start' ? boxing.start(owner, id) : boxing.surrender(owner, id);
+          }
+        }
         if (path === '/api/state' && request.method === 'GET') {
           const account = accountSession(request, arena);
           return { ...arena.view(owner), storage: 'D1', signedIn: !!(account || signedIdentity(request)), auth: { phoneEnabled: authConfig(env).enabled, provider: account ? 'cloudbase' : signedIdentity(request) ? 'chatgpt' : 'guest', maskedPhone: account?.maskedPhone || null } };
@@ -119,6 +145,8 @@ export default {
         if (path === '/api/pets' && request.method === 'POST') { if (Object.values(arena.s.pets).length >= 500) throw new ApiError(503, '本轮试玩名额已满'); arena.createPet(owner, input); responseStatus = 201; return arena.view(owner); }
         if (path === '/api/pets/appearance' && request.method === 'POST') { arena.updateAppearance(owner, input); return arena.view(owner); }
         if (path === '/api/pets/game' && request.method === 'POST') return arena.selectGame(owner, input);
+        if (path === '/api/pets/skill/check' && request.method === 'POST') return arena.checkCompetitionSkill(owner, input);
+        if (path === '/api/pets/skill' && request.method === 'POST') return arena.updateCompetitionSkill(owner, input);
         if (path === '/api/pets/chat' && request.method === 'GET') { arena.tick(); return arena.chatView(owner, url.searchParams.get('requestId')); }
         if (path === '/api/pets/chat' && request.method === 'POST') { limit(arena, owner, 'chat', 20); arena.tick(); const chat = arena.chat(owner, input); responseStatus = chat.request?.status === 'complete' ? 200 : 202; return chat; }
         if (path === '/api/pets/prepare' && request.method === 'POST') {

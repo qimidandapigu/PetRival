@@ -8,9 +8,10 @@
   <link rel="stylesheet" href="/cloud.css">
   <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/pet-editor.css"><link rel="stylesheet" href="/duel.css"><link rel="stylesheet" href="/companion.css"><link rel="stylesheet" href="/world.css">
   <link rel="stylesheet" href="/phone-login.css">
+  <link rel="stylesheet" href="/skill-editor.css">
   <script type="module" src="/phone-login.mjs"></script>
   <script type="module" src="/app.mjs"></script>
-</head>
+<link rel="stylesheet" href="/boxing.css"></head>
 <body>
   <header class="topbar"><a href="/" class="brand"><span class="brand-mark">P<span>R</span></span><span>PETRIVAL<small>和你的小伙伴，过小日子</small></span></a><div class="top-right"><span class="pill" id="mode">连接中</span><span id="account-state" class="pill">连接存档中</span><span>早期试玩版</span></div></header>
   <main>
@@ -23,7 +24,7 @@
       <section class="panel"><div class="section-heading"><div><span class="eyebrow">CHALLENGE LOG</span><h2>我的挑战</h2></div><span class="muted">不用同时在线</span></div><div id="matches"></div></section>
     </div><aside>
       <section class="panel skills-panel" id="pet-skills" aria-label="宠物技能库"></section>
-      <section class="panel ladder" id="rankings"><div class="section-heading"><div><span class="eyebrow">PET LEADERBOARD</span><h2>宠物排行榜</h2></div><span class="trophy">♜</span></div><div id="leaderboard"></div><p class="fine">累计挑战分优先，同分比计分用时。训练宠物不占榜。</p></section>
+      <section class="panel ladder" id="rankings"><div class="section-heading"><div><span class="eyebrow">PET LEADERBOARD</span><h2 id="ranking-title">推箱子排行榜</h2></div><span class="trophy">♜</span></div><div id="leaderboard"></div><p class="fine">累计挑战分优先，同分比计分用时。训练宠物不占榜。</p></section>
       <section class="panel" id="score-ledger" hidden><div class="section-heading"><h2>我的积分明细</h2><button id="load-ledger">查看</button></div><div id="ledger-entries"><p class="fine">每场正式比赛的积分变化都会保存。</p></div></section>
       <section class="rule-card"><span class="eyebrow">HOW TO RIVAL</span><h3>出题在后台，<br>好胜在当下。</h3><ol><li><b>各自备一关</b><span>先验证有解，换题不打断对战</span></li><li><b>挑战对方的题</b><span>主人和宠物分别闯关</span></li><li><b>一起拿下积分</b><span>通关 +100 · 失败 −20</span></li></ol><p>真人开始后限时 3 分钟。分数相同比通关用时，失败按完整时限计时。24 小时未完成的对局作废，不扣分。</p></section>
     </aside></div>
@@ -70,5 +71,12 @@
     </div>
     <div class="game-summary"><div id="agent-card"></div><div id="result-card"></div></div>
   </dialog>
+<dialog id="boxing-dialog" class="boxing-shell"><div id="boxing-notice" role="status" hidden></div><section id="fight" hidden><div class="fight-title"><div><p class="eyebrow" id="match-kind">PET RIVALRY</p><h2 id="match-title"></h2></div><button id="back">返回宠物页面</button></div>
+<div class="rings"><section class="ring-card"><div class="ring-label"><b><i class="blue"></i>01 · 宠物对战</b><span>AI × AI / 正常数值</span></div><div class="hud" id="pet-hud"></div><canvas id="pet-ring" width="800" height="420" aria-label="左边宠物自动对战擂台"></canvas><p class="ring-status" id="pet-status" role="status"></p></section>
+<section class="ring-card"><div class="ring-label"><b><i class="orange"></i>02 · 你来应战</b><span>对手 150 HP / ATK ×5</span></div><div class="hud" id="human-hud"></div><canvas id="human-ring" width="800" height="420" aria-label="右边真人挑战五倍加强对手擂台"></canvas><p class="ring-status" id="human-status" role="status"></p></section></div>
+<div class="under-ring"><div class="commands" aria-label="真人拳击操作"><button data-action="retreat"><kbd>A / ←</kbd>后退</button><button data-action="advance"><kbd>D / →</kbd>前进</button><button data-action="jab"><kbd>J</kbd>轻拳</button><button data-action="heavy"><kbd>K</kbd>重拳</button><button data-action="guard"><kbd>L</kbd>防御</button></div><button id="surrender" class="danger">真人认输</button><button id="rematch" hidden>再来一局 ↗</button><button id="join" hidden>开始我的真人场</button></div>
+<p class="fine">按住连续行动，松手站立；只有按住 L 或防御按钮才防御。轻拳快，重拳有破绽；打中有击退，防御仍受少量伤害。时间到比较剩余血量百分比。</p><div id="result" class="result" role="status"></div></section>
+</dialog>
+
 </body>
 </html>

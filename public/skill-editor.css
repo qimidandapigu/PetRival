@@ -1,0 +1,22 @@
+.competition-skill-dialog{width:min(700px,calc(100vw - 28px));max-height:90dvh;overflow-y:auto;padding:26px;border:1px solid #d4dccd;border-radius:22px;background:#fffef7;color:#34483a}
+.competition-skill-dialog::backdrop{background:#172c2499}
+.competition-skill-dialog form{display:grid;gap:10px}
+.competition-skill-dialog h2{margin:0}
+.competition-skill-dialog label{font-weight:650}
+.competition-skill-dialog textarea,.competition-skill-dialog input,.competition-skill-dialog select{width:100%;box-sizing:border-box;border:1px solid #cad6c3;border-radius:10px;background:white;padding:10px;color:inherit}
+.competition-skill-dialog textarea{resize:vertical}
+#skill-code{font:14px/1.65 Consolas,monospace;tab-size:2}
+.skill-intro,.skill-help p{font-size:13px;line-height:1.7;color:#677563;margin:4px 0 10px}
+.skill-capacity-row,.skill-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#skill-capacity-meter{width:100%;height:9px;accent-color:#658553}
+#skill-validation{min-height:1.5em;font-size:13px;margin:0;overflow-wrap:anywhere}
+.skill-help{font-size:13px;background:#f1f4e8;padding:10px 14px;border-radius:10px}
+.skill-help pre{white-space:pre-wrap;font-size:12px}
+.skill-editor-actions{margin-top:12px}
+.competition-slot{border:1px solid #ccd8bb;background:#f6f8ee;border-radius:14px;padding:16px;margin-bottom:18px}
+.competition-slot h3{margin:0 0 10px;font-size:17px}
+.competition-slot p{font-size:13px;line-height:1.7;margin:8px 0;color:#65745e}
+.competition-slot progress{width:100%;accent-color:#63834d}
+.competition-slot button{width:100%;margin-top:8px}
+.competition-slot strong{overflow-wrap:anywhere}
+@media(max-width:500px){.competition-skill-dialog{padding:16px}.skill-editor-actions button{flex:1 1 40%}}

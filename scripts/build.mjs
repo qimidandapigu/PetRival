@@ -6,7 +6,7 @@ mkdirSync('dist/client/shared', { recursive: true });
 mkdirSync('dist/.openai', { recursive: true });
 cpSync('public', 'dist/client', { recursive: true });
 writeFileSync('dist/client/pet-badge.svg', petMarkup({ species: 'xiaotangyuan' }));
-for (const file of ['game.mjs', 'pet.mjs', 'pet-studio.mjs', 'progression.mjs', 'life.mjs']) cpSync(`shared/${file}`, `dist/client/shared/${file}`);
+for (const file of ['game.mjs', 'boxing.mjs', 'pet.mjs', 'pet-studio.mjs', 'progression.mjs', 'life.mjs']) cpSync(`shared/${file}`, `dist/client/shared/${file}`);
 cpSync('.openai/hosting.json', 'dist/.openai/hosting.json');
 cpSync('drizzle', 'dist/.openai/drizzle', { recursive: true });
 await build({ entryPoints: ['client/cloudbase.mjs'], bundle: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, outfile: 'dist/client/cloudbase-auth.mjs' });

@@ -24,15 +24,16 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
       </div>
     </section>
     <section class="panel game-library" id="game-library" aria-label="选择游戏">
-      <div class="section-heading"><div><span class="eyebrow">A LITTLE ADVENTURE</span><h2>游戏小屋</h2></div><span class="game-count">01</span></div>
+      <div class="section-heading"><div><span class="eyebrow">A LITTLE ADVENTURE</span><h2>游戏小屋</h2></div><span class="game-count">02</span></div>
       <button type="button" class="game-choice" id="choose-sokoban" aria-pressed="true">
         <span class="game-art" aria-hidden="true"><span class="mini-goal g-one">✿</span><span class="mini-goal g-two">✿</span><span class="mini-box b-one">×</span><span class="mini-box b-two">×</span><span id="game-pet-art"></span></span>
-        <span class="game-choice-info"><span><strong>推箱子</strong><small>益智解谜 · 人宠同玩</small></span><span class="selected-check">✓ 已选择</span></span>
+        <span class="game-choice-info"><span><strong>推箱子</strong><small>益智解谜 · 人宠同玩</small></span><span class="selected-check" id="sokoban-selected">✓ 已选择</span></span>
       </button>
-      <p class="game-description">生活之余，和搭档来一场推箱子。</p>
+      <button type="button" class="game-choice" id="choose-boxing" aria-pressed="false"><span class="game-choice-info"><span><strong>打拳</strong><small>宠物对战 · 真人同时应战</small></span><span class="selected-check" id="boxing-selected">选择 ↗</span></span></button>
+      <p class="game-description" id="game-description">生活之余，和搭档来一场推箱子。</p>
       <button type="button" id="hub-play" class="primary">进入推箱子 <span>↗</span></button>
       <a class="rival-link" href="#rival-section">去挑选一位对手 →</a>
-      <div class="coming-games"><span>＋</span><div>小院之外，也有小小冒险<small>目前只开放推箱子</small></div></div>
+      <div class="coming-games"><span>＋</span><div>小院之外，也有小小冒险<small>共用宠物与存档，两种游戏分别排名</small></div></div>
     </section>
     `;
 
@@ -137,6 +138,10 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
     if (!state.mine) { notify('推箱子已选好，先领养一位搭档吧。'); document.querySelector('#my-pet').scrollIntoView({ behavior: 'smooth' }); return; }
     try { await api('/api/pets/game', { gameId: 'sokoban' }); await refresh(); notify('已选择推箱子，和搭档一起出发吧。'); } catch (err) { notify(err.message, true); }
   });
+  $('#choose-boxing').addEventListener('click', async () => {
+    if (!state.mine) { notify('先领养一位搭档，再一起打拳吧。'); document.querySelector('#my-pet').scrollIntoView({ behavior: 'smooth' }); return; }
+    try { await api('/api/pets/game', { gameId: 'boxing' }); await refresh(); notify('已选择打拳，下面选择一位对手。'); } catch (err) { notify(err.message, true); }
+  });
   $('#hub-play').addEventListener('click', async () => {
     if (!state.mine) { document.querySelector('#my-pet').scrollIntoView({ behavior: 'smooth' }); document.querySelector('#pet-name')?.focus({ preventScroll: true }); return; }
     $('#hub-play').disabled = true;
@@ -160,19 +165,27 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
     }
     $('#chat-mode').textContent = state.mode === 'model' ? (state.model === 'deepseek-v4-pro' ? 'DeepSeek Pro' : state.model || 'AI 对话') : '本地规则对话';
     renderLife(mine?.life);
-    $('#hub-play').innerHTML = mine ? '进入推箱子 <span>↗</span>' : '先领养宠物 <span>↗</span>';
+    const boxing = mine?.selectedGame === 'boxing';
+    $('#choose-sokoban').setAttribute('aria-pressed', String(!boxing));
+    $('#choose-boxing').setAttribute('aria-pressed', String(boxing));
+    $('#sokoban-selected').textContent = boxing ? '选择 ↗' : '✓ 已选择';
+    $('#boxing-selected').textContent = boxing ? '✓ 已选择' : '选择 ↗';
+    $('#game-description').textContent = boxing ? '左边宠物对打，右边你也上场。拳台积分单独排名。' : '生活之余，和搭档来一场推箱子。';
+    $('#hub-play').innerHTML = mine ? (boxing ? '选择打拳对手 <span>↗</span>' : '进入推箱子 <span>↗</span>') : '先领养宠物 <span>↗</span>';
     $('#chat-help').textContent = state.mode === 'model' ? 'Enter 发送 · 对话会发送给当前模型服务' : 'Enter 发送 · Shift + Enter 换行 · 本地规则回复';
     if (petId !== mine?.id) { petId = mine?.id; messages = []; failedRequest = null; drawMessages(); if (mine) loadHistory(); }
     else if (!mine) drawMessages();
     controls();
     const growth = mine?.progression;
-    const nextSkills = JSON.stringify([mine?.id, growth]);
+    const nextSkills = JSON.stringify([mine?.id, growth, mine?.competition]);
     if (nextSkills !== skillsKey) {
       skillsKey = nextSkills;
       const skills = growth?.skills || [], unlocked = skills.filter(s => s.unlocked).length;
       const panel = document.querySelector('#pet-skills');
+      const competition = mine?.competition, equipped = competition?.equipped;
       const openSkills = [...panel.querySelectorAll('details[open]')].map(d => d.dataset.skill);
       panel.innerHTML = `<div class="section-heading"><div><span class="eyebrow">LITTLE STEPS, REAL GROWTH</span><h2>宠物技能库</h2></div><span class="skill-count">${unlocked}<small> / ${skills.length}</small></span></div>
+        ${competition ? `<section class="competition-slot" aria-label="比赛技能"><h3>技巧 · ${competition.capacity}</h3><div class="skill-capacity-row"><strong>${escape(equipped?.name || '空技能槽')}</strong><span>${equipped ? 1 : 0} / 1 槽</span></div><p>技能容量 ${equipped?.tokens || 0} / ${competition.capacity} token · ${equipped?.gameId === 'boxing' ? '打拳' : equipped ? '推箱子' : '推箱子 / 打拳'}</p><progress max="${competition.capacity}" value="${equipped?.tokens || 0}" aria-label="比赛技能容量"></progress><p>${escape(equipped?.description || '保留一段比赛策略，读取当前局面并选择动作。')}</p><button id="edit-competition-skill" type="button">${equipped ? '查看 / 替换技能' : '装备比赛技能'}</button></section>` : ''}
         ${mine ? `<div class="growth-summary"><span class="level-emblem">Lv.<b>${growth?.level || 1}</b></span><div><b>${growth?.clears || 0} 张新地图已通关</b><span>再获 ${Math.max(0, (growth?.xpForNextLevel || 100) - (growth?.xpIntoLevel || 0))} 经验升到下一级</span></div></div><progress class="xp-progress" max="${growth?.xpForNextLevel || 100}" value="${growth?.xpIntoLevel || 0}" aria-label="宠物升级经验"></progress><div class="xp-caption"><span>成长经验</span><b>${growth?.xpIntoLevel || 0} / ${growth?.xpForNextLevel || 100} XP</b></div>
         <div class="skill-list">${skills.map((s, index) => `<details class="skill-item ${s.unlocked ? 'unlocked' : 'locked'}" data-skill="${escape(s.id)}" ${openSkills.includes(s.id) ? 'open' : ''}><summary><span class="skill-icon">${s.unlocked ? '✦' : '◇'}</span><span><b>${escape(s.name)}</b><small>${s.unlocked ? '已解锁 · 推箱子' : escape(s.requirement)}</small></span><span class="skill-chevron">${s.unlocked ? '✓' : String(index + 1).padStart(2, '0')}</span></summary><p>${escape(s.description)}</p><div class="skill-condition">${escape(s.requirement)}${s.learnedAt ? `<br>解锁于 ${new Date(s.learnedAt).toLocaleDateString('zh-CN')}` : ''}</div></details>`).join('')}</div><p class="growth-rule">宠物首次通关新地图 +40 XP。技能库先记录闯关里程碑，聊天不会增加经验。</p>` : '<div class="empty">领养后，从 Lv.1 开始。<br>带宠物闯关，点亮第一项技能。</div>'}`;
     }

@@ -1,0 +1,12 @@
+# Shared pet, game selection and durable matches
+
+Integrated the completed boxing, competition-skill and incremental Sokoban task deliveries into the existing courtyard and phone-account application.
+
+- The game library selects Sokoban or boxing on the same pet page. Selection persists on the pet. Opponents, match history and rankings follow the selection; boxing opens a scoped dialog. Legacy boxing URLs return to the shared homepage.
+- Boxing uses the delivered 30 HP versus 30 HP pet match and a separate 30 HP human versus 150 HP / 5x power opponent. Released controls and model waits mean idle, not guard. Each bout lasts at most 45 seconds. Training never changes ranking; ranked settlement waits for both owners and the pet bout.
+- Sites stores boxing state and controller queues in a new additive D1 table. A revision-fenced transaction commits match settlement with pet boxing ranks. Human input advances elapsed authoritative frames before accepting new commands. Model calls run outside transactions with durable claims and bounded retries; the HTTP result does not reveal queues or skill code.
+- One competition skill slot supports Sokoban or boxing with at most 100 o200k_base tokens across description and code. The restricted interpreter does not execute arbitrary host JavaScript. The opening skill snapshot is fixed; the human fighter never uses a pet's skill. Non-triggered or invalid skills fall back to the configured model/algorithm.
+- Sokoban gains geometric goal feedback, push-position memory and full-push undo. The opt-in `MODEL_PUSH_POLICY=preview` also persists stage goals and model-proposed short continuations, validating each against the actual board. The default remains `feedback`; this integration does not silently enable an experimental policy.
+- Existing phone identity, guest binding, courtyard, chat and appearance work are retained. Payment handoff modules remain outside this release.
+
+Validation: 180 integrated automated tests passed, plus a dedicated actual Workers runtime test that held the model HTTP response open while health, boxing state and human input remained responsive, then verified the returned commands in D1. These use fixtures, not a new production model benchmark. The source tasks separately recorded local gameplay and skill-editor browser checks. A later boxing-only local process stall was reported by its author and is not claimed resolved by the cloud responsiveness check. No new production concurrent-capacity or generalized model success-rate claim is made.

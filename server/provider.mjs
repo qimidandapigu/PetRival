@@ -1,6 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parse, replay, renderRows, RULES } from '../shared/game.mjs';
-import { stepObservation, stateKey, reachablePushes } from './step-observation.mjs';
+import { stepObservation, stateKey, reachablePushes, pushPositionKey } from './step-observation.mjs';
+import { chooseWithPreview, advanceStage } from './push-preview.mjs';
+import { skillDecision } from './competition-skill.mjs';
 class ProviderUnavailable extends Error {
   constructor(message, options = {}) { super(message); this.name = 'ProviderUnavailable'; this.code = options.code || 'model_unavailable'; this.upstreamStatus = options.upstreamStatus; }
 }
@@ -37,6 +39,8 @@ export class PetBrain {
     if (!['algorithm', 'model'].includes(this.mode)) throw new Error('AI_MODE 必须为 algorithm 或 model');
     this.url = env.MODEL_CHAT_URL || 'https://api.deepseek.com/chat/completions';
     this.model = env.MODEL_NAME || 'deepseek-v4-pro'; this.key = env.MODEL_API_KEY;
+    this.pushPolicy = env.MODEL_PUSH_POLICY || 'feedback';
+    if (!['feedback', 'preview'].includes(this.pushPolicy)) throw new Error('MODEL_PUSH_POLICY 必须为 feedback 或 preview');
     this.playEffort = env.MODEL_PLAY_EFFORT ?? 'none';
     if (!['high', 'low', 'none'].includes(this.playEffort)) throw new Error('MODEL_PLAY_EFFORT 必须为 high、low 或 none');
     this.tokenParameter = env.MODEL_TOKEN_PARAMETER || 'max_tokens';
@@ -105,7 +109,7 @@ export class PetBrain {
   }
   async chat({ name, gameId = 'sokoban', progression = {}, life, history = [] }) {
     if (this.closed) throw new Error('服务已停止');
-    if (gameId !== 'sokoban') throw new Error('目前只支持推箱子');
+    if (!['sokoban', 'boxing'].includes(gameId)) throw new Error('目前只支持推箱子和打拳');
     if (!Array.isArray(history) || !history.length || history.at(-1)?.role !== 'user') throw new Error('对话需要一条新的用户消息');
     const messages = history.slice(-20).map(message => {
       if (!['user', 'assistant'].includes(message?.role) || typeof message.content !== 'string' || !message.content.trim() || message.content.length > 2000) throw new Error('对话消息格式不正确');
@@ -118,7 +122,7 @@ export class PetBrain {
     // Only companion facts cross this boundary. Private puzzle proofs, replay data and credentials are never serialized.
     const context = {
       name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 32) : '小伙伴',
-      game: { id: gameId, name: '推箱子' },
+      game: { id: gameId, name: gameId === 'boxing' ? '打拳' : '推箱子' },
       progression: {
         level: Math.max(1, integer(progression.level, 1)), xp: integer(progression.xp),
         xpIntoLevel: integer(progression.xpIntoLevel), xpForNextLevel: integer(progression.xpForNextLevel, 100),
@@ -224,8 +228,9 @@ export class PetBrain {
       }
     }
   }
-  async play(rows, { onProgress = () => {}, signal, style = this.playEffort === 'none' ? 'push' : 'plan' } = {}) {
+  async play(rows, { onProgress = () => {}, signal, skill = null, style = this.playEffort === 'none' ? 'push' : 'plan' } = {}) {
     if (!['plan', 'step', 'push'].includes(style)) throw new Error('未知闯关方式');
+    if (skill?.gameId === 'sokoban') return this.playSteps(rows, { onProgress, signal, style: 'push', skill });
     if (style !== 'plan' && this.mode === 'model') return this.playSteps(rows, { onProgress, signal, style });
     // Only public board data crosses this boundary. No generation proof, owner chat or human replay.
     const started = this.now(), deadline = new AbortController();
@@ -283,15 +288,17 @@ export class PetBrain {
       throw error;
     } finally { clearTimeout(timer); }
   }
-  async playSteps(rows, { onProgress, signal, style }) {
+  async playSteps(rows, { onProgress, signal, style, skill = null }) {
     const started = this.now(), deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(new PlayDeadline('宠物挑战超时')), RULES.limitMs); timer.unref();
     const combined = AbortSignal.any([deadline.signal, this.stop.signal, ...(signal ? [signal] : [])]);
-    let actions = '', current = replay(rows, ''), phase = 'deciding', note = '正在选择下一步', feedback = null, invalid = 0, turn = 0;
+    let actions = '', current = replay(rows, ''), phase = 'deciding', note = '正在选择下一步', feedback = null, invalid = 0, turn = 0, stage = null, continuation = [];
     const recent = [], visits = new Map([[stateKey(current.state), 1]]);
+    const decisions = [], undoDecisions = [], pushVisits = new Map([[pushPositionKey(current.state), 1]]), tried = new Map();
+    let skillStatus = null, skillUses = 0;
     const snapshot = () => ({ actions, steps: current.steps, elapsedMs: Math.max(1, this.now() - started),
       method: this.mode, model: this.info().model, effort: this.deepseek ? 'none' : null,
-      playStyle: style, phase, turn, note });
+      playStyle: style, pushPolicy: this.pushPolicy, stageGoal: stage, phase, turn, note, ...(skill ? { skillStatus, skillUses } : {}) });
     const check = () => { combined.throwIfAborted(); if (this.now() - started >= RULES.limitMs) throw new PlayDeadline('宠物挑战超时'); };
     try {
       while (!current.won && turn < 60 && actions.length < RULES.maxActions) {
@@ -300,25 +307,59 @@ export class PetBrain {
         const observation = stepObservation(current.state, { turn, remainingMs: RULES.limitMs - (this.now() - started),
           recent, visits: visits.get(stateKey(current.state)) || 1, canUndo: stateKey(undo.state) !== stateKey(current.state), feedback });
         const choices = style === 'push' ? reachablePushes(current.state) : null;
-        if (choices) observation.availablePushes = choices.map(({ actions: path, ...choice }) => choice);
+        const position = choices ? pushPositionKey(current.state) : null;
+        if (choices) {
+          observation.availablePushes = choices.map(({ actions: path, ...choice }) => {
+            const next = replay(renderRows(current.state), path).state;
+            return { ...choice, triedFromThisPosition: tried.get(`${position}/${choice.id}`) || 0,
+              returnsToVisitedPosition: pushVisits.get(pushPositionKey(next)) || 0 };
+          });
+          observation.recentDecisions = decisions.slice(-8);
+          observation.remainingGoals = current.state.goals.filter(p => !current.state.boxes.includes(p)).map(p => ({ x: p % 8, y: Math.floor(p / 8) }));
+          observation.assignmentGuidance = 'Each box needs a different goal. compatibleGoalsForThisBox excludes assignments that leave the other box with no distinct goal. If it lists one goal, that is this box\'s only possible destination. Pursue remainingGoals; a box already on its sole compatible goal should stay there.';
+          observation.visitsToThisPushPosition = pushVisits.get(position) || 1;
+          observation.canUndo = undoDecisions.length > 0;
+          observation.undoMeaning = 'Undo the entire last push decision, including its walking approach, restoring the board before that choice.';
+          observation.goalReachabilityNote = 'Geometry warnings ignore other boxes. deadlock=true proves this choice cannot solve the board. false does not guarantee a solution; do not greedily choose by distance or filled goals.';
+        }
         let result;
+        const decision = skillDecision(skill, observation);
+        skillStatus = decision.status;
+        if (decision.choice !== null) { result = { choice: decision.choice }; skillUses++; continuation = []; }
+        else if (this.mode === 'algorithm') {
+          const solved = await this.jobs.run('solve', { rows: renderRows(current.state) }); check();
+          if (!solved.actions) { note = '搜索预算内未找到解'; break; }
+          result = { choice: choices.find(c => solved.actions.startsWith(c.actions))?.id };
+        }
+        if (!result) {
         try {
-          result = await this.json([
-            { role: 'system', content: choices ? 'Play Sokoban, choose ONE next push, not a complete solution. Return JSON {"choice":"an id from availablePushes"}. The walking tool will take you to the chosen box and push it ONE tile, then you receive the actual updated board. You decide the box and push direction. Aim to put both boxes on goals. Prefer goal-filling pushes; avoid corner=true. Preserve boxes on goals unless moving them is necessary. Compare box and goal coordinates when choosing intermediate pushes. Do not loop. You can return choice "undo" to undo the previous tile move or "restart" to reset the board; the clock continues. No tool solves the puzzle. Return only the choice JSON.' : 'Play Sokoban interactively, ONE action per turn. Return JSON {"action":"U"}, choosing U/D/L/R to move or push one tile, Z to undo your previous successful move, or X to restart. Do not output a complete solution. After your action you will receive the actual new board and feedback. Put both boxes on goals; boxes cannot be pulled. Coordinates and legalMoves are engine observations, not a solution. To push a box, stand on its opposite side. Avoid pushing boxes into non-goal corners. Use undo when you make a mistake. Use recent moves and visits to avoid repeating a loop. # wall, space floor, . goal, $ box, @ player, * box on goal, + player on goal. The engine decides success.' },
+          const pending = continuation[0], cachedPush = choices?.find(c => c.id === pending?.choice);
+          const canContinue = this.pushPolicy === 'preview' && cachedPush && !cachedPush.deadlock &&
+            pending.beforeKey === stateKey(current.state) && pending.afterKey === stateKey(replay(renderRows(current.state), cachedPush.actions).state);
+          result = canContinue ? { choice: pending.choice, stage, continuation: continuation.slice(1) }
+            : choices && this.pushPolicy === 'preview'
+            ? await chooseWithPreview(this, current.state, observation, { signal: combined, stage, visits: pushVisits,
+              onComparing: async () => { check(); note = '正在比较候选路线的试演结果'; await onProgress(snapshot()); } })
+            : await this.json([
+            { role: 'system', content: choices ? 'Play Sokoban by choosing ONE push id from availablePushes. Return only JSON {"choice":"id"}. The walking tool approaches that box and pushes once; you decide every push. Plan the order of the two goals: keep room to stand behind boxes, and do not seal a corridor by filling a goal too early. A temporarily farther move or moving a box off a goal may be necessary. Never choose deadlock=true: this is a geometric impossibility, not merely a longer route. Use recentDecisions and returnsToVisitedPosition to recognize loops; after undo, try a different push rather than repeating the failed branch. Goal reachability ignores the other box and is not a solution. choice "undo" undoes the entire last push decision, including approach walking; use it to backtrack several decisions if necessary. choice "restart" resets the board but retains decision memory and the running clock. No tool chooses pushes or solves the puzzle.' : 'Play Sokoban interactively, ONE action per turn. Return JSON {"action":"U"}, choosing U/D/L/R to move or push one tile, Z to undo your previous successful move, or X to restart. Do not output a complete solution. After your action you will receive the actual new board and feedback. Put both boxes on goals; boxes cannot be pulled. Coordinates and legalMoves are engine observations, not a solution. To push a box, stand on its opposite side. Avoid pushing boxes into non-goal corners. Use undo when you make a mistake. Use recent moves and visits to avoid repeating a loop. # wall, space floor, . goal, $ box, @ player, * box on goal, + player on goal. The engine decides success.' },
             { role: 'user', content: JSON.stringify(observation) },
           ], { signal: combined, playEffort: 'none' });
         } catch (error) {
           if (error instanceof ProviderUnavailable || combined.aborted || error instanceof PlayDeadline) throw error;
           result = null;
         }
+        }
         check();
-        const plan = choices ? (result?.choice === 'undo' ? 'Z' : result?.choice === 'restart' ? 'X' : choices.find(c => c.id === result?.choice)?.actions) : result?.action;
+        const plan = choices ? (result?.choice === 'undo' ? 'Z'.repeat(undoDecisions.at(-1) || 0) : result?.choice === 'restart' ? 'X' : choices.find(c => c.id === result?.choice)?.actions) : result?.action;
         if (typeof plan !== 'string' || !(choices ? /^[UDLRZX]+$/ : /^[UDLRZX]$/).test(plan)) {
           invalid++; feedback = { error: choices ? 'Invalid choice. Select an id from availablePushes, undo, or restart; board unchanged.' : 'Invalid format: return exactly one action character in JSON {"action":"U"}. Board unchanged.' };
           if (invalid >= 3) { note = '连续三次未给出合法动作，本次未通关'; break; }
           continue;
         }
         invalid = 0;
+        if (choices && this.pushPolicy === 'preview') { stage = result.stage; continuation = result.continuation || []; }
+        const beforeDecision = current, beforeActions = actions.length;
+        if (choices) tried.set(`${position}/${result.choice}`, (tried.get(`${position}/${result.choice}`) || 0) + 1);
         for (const action of plan) {
           if (current.won || actions.length >= RULES.maxActions) break;
           if (this.stepMs > 0) await sleep(this.stepMs, undefined, { signal: combined }); check();
@@ -332,6 +373,21 @@ export class PetBrain {
           visits.set(stateKey(current.state), (visits.get(stateKey(current.state)) || 0) + 1);
           phase = 'acting'; note = current.won ? '游戏引擎已确认通关' : action === 'Z' ? '宠物撤销了上一步，准备重新选择' : action === 'X' ? '宠物选择重来，计时继续' : changed ? '已执行一步，继续观察棋盘' : '这一步没有移动，正在反馈给宠物';
           await onProgress(snapshot());
+        }
+        if (choices && actions.length > beforeActions) {
+          if (this.pushPolicy === 'preview') stage = advanceStage(stage, choices.find(c => c.id === result.choice), current.state, result.choice);
+          if (result.choice === 'undo') undoDecisions.pop();
+          else if (result.choice === 'restart') undoDecisions.length = 0;
+          else undoDecisions.push(current.steps - beforeDecision.steps);
+          const afterPosition = pushPositionKey(current.state);
+          pushVisits.set(afterPosition, (pushVisits.get(afterPosition) || 0) + 1);
+          const decision = { choice: result.choice, beforeBoxes: beforeDecision.state.boxes.map(p => ({ x: p % 8, y: Math.floor(p / 8) })),
+            afterBoxes: current.state.boxes.map(p => ({ x: p % 8, y: Math.floor(p / 8) })),
+            goalsBefore: beforeDecision.state.boxes.filter(p => beforeDecision.state.goals.includes(p)).length,
+            goalsAfter: current.state.boxes.filter(p => current.state.goals.includes(p)).length,
+            revisitedPosition: pushVisits.get(afterPosition) > 1 };
+          decisions.push(decision);
+          feedback = { ...feedback, decision, ...(decision.revisitedPosition ? { warning: 'This push position was visited before. Compare recent decisions and choose a different branch, or undo further.' } : {}) };
         }
       }
       if (!current.won && invalid < 3) note = actions.length >= RULES.maxActions ? '已达到操作上限，本次未通关' : '已达到 60 回合，本次未通关';

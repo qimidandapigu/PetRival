@@ -56,3 +56,19 @@ test('cloud incremental invalid decisions retry twice then fail, never resetting
     assert.equal((await f.act(a => a.getPractice('owner', practice.id))).run.status, i === 2 ? 'failed' : 'running');
   }
 });
+
+test('cloud preview persists its stage and verified continuation without executing simulations or repeating model calls', async t => {
+  const f = await fixture(); t.after(() => f.brain.close()); f.brain.pushPolicy = 'preview'; let calls = 0;
+  t.mock.method(f.brain, 'json', async () => { calls++; return { stage: { box: { x: 2, y: 3 }, target: { x: 2, y: 2 } }, candidates: [{ pushes: [{ box: 'A', direction: 'U' }, { box: 'B', direction: 'U' }] }] }; });
+  const practice = await f.act(a => a.startPractice('owner'));
+  for (let i = 0; i < 2; i++) {
+    const claim = await f.act(a => a.claimJob('owner', 'foreground'));
+    const result = await executeJob(f.brain, claim);
+    assert.ok(result.actions);
+    await f.act(a => a.finishJob(claim, result));
+    if (!i) { const run = (await f.act(a => a.getPractice('owner', practice.id))).run; assert.equal(run.actions, ''); assert.equal(run.status, 'running'); assert.ok(!JSON.stringify(run).includes('continuation')); }
+    f.later((result.actions.length + 1) * RULES.stepMs); await f.act(a => a.getPractice('owner', practice.id));
+  }
+  const done = await f.act(a => a.getPractice('owner', practice.id));
+  assert.equal(done.run.status, 'cleared'); assert.equal(calls, 1);
+});

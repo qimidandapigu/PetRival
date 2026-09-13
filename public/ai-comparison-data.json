@@ -1,0 +1,105 @@
+{
+  "recordedAt": "2026-09-13T17:05:20.053Z",
+  "levels": [
+    {
+      "id": "L07",
+      "rows": [
+        "########",
+        "#      #",
+        "# .  . #",
+        "#  $   #",
+        "#   $  #",
+        "#  @   #",
+        "#      #",
+        "########"
+      ],
+      "baseline": {
+        "actions": "RUUDLLUURRDLDLU",
+        "steps": 15,
+        "elapsedMs": 12460,
+        "calls": 5
+      },
+      "candidate": {
+        "actions": "UURULDDDRULURDRU",
+        "steps": 16,
+        "elapsedMs": 12990,
+        "calls": 4
+      }
+    },
+    {
+      "id": "L08",
+      "rows": [
+        "########",
+        "#      #",
+        "# .  . #",
+        "# $  $ #",
+        "# @    #",
+        "#      #",
+        "#      #",
+        "########"
+      ],
+      "baseline": {
+        "actions": "UDRRRU",
+        "steps": 6,
+        "elapsedMs": 5167,
+        "calls": 2
+      },
+      "candidate": {
+        "actions": "UDRRRU",
+        "steps": 6,
+        "elapsedMs": 8580,
+        "calls": 3
+      }
+    },
+    {
+      "id": "L09",
+      "rows": [
+        "########",
+        "# .    #",
+        "#  $#  #",
+        "#    # #",
+        "# $    #",
+        "#    @ #",
+        "#  .   #",
+        "########"
+      ],
+      "baseline": {
+        "actions": "ULULLUURDLDLDRRDRRULULDDULUU",
+        "steps": 28,
+        "elapsedMs": 19094,
+        "calls": 9
+      },
+      "candidate": {
+        "actions": "ULULUDDRRRUUULLLDDLLDRURDD",
+        "steps": 26,
+        "elapsedMs": 16990,
+        "calls": 6
+      }
+    },
+    {
+      "id": "L10",
+      "rows": [
+        "########",
+        "#.   $ #",
+        "#      #",
+        "# #    #",
+        "#    # #",
+        "#  .$  #",
+        "#  @   #",
+        "########"
+      ],
+      "baseline": {
+        "actions": "RRULLULLDRURUURRRULDLLURDDDDDLURUULDUURRRULLLL",
+        "steps": 46,
+        "elapsedMs": 28305,
+        "calls": 11
+      },
+      "candidate": {
+        "actions": "UUUURRRULDDRDDLLUUURULLL",
+        "steps": 24,
+        "elapsedMs": 15043,
+        "calls": 5
+      }
+    }
+  ]
+}
