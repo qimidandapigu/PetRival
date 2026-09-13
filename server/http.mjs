@@ -22,6 +22,8 @@ const files = {
   '/companion.css': ['public/companion.css', 'text/css; charset=utf-8'],
   '/world-scene.mjs': ['public/world-scene.mjs', 'text/javascript; charset=utf-8'],
   '/world.css': ['public/world.css', 'text/css; charset=utf-8'],
+  '/cloud.css': ['public/cloud.css', 'text/css; charset=utf-8'],
+  '/pet-badge.svg': ['public/pet-badge.svg', 'image/svg+xml'],
 };
 async function body(req) {
   let bytes = 0; const chunks = [];

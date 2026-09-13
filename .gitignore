@@ -10,3 +10,5 @@ sites-app/
 dist/
 .wrangler/
 .sites-runtime/
+
+.dev.vars

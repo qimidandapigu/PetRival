@@ -4,6 +4,7 @@ import http from 'node:http';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createApp } from '../server/http.mjs';
 import { solve, replay } from '../shared/game.mjs';
 
@@ -96,6 +97,23 @@ test('challenge returns while model generation is held, locking cached levels wi
   const after = await a.call(`/api/challenges/${result.id}`);
   assert.equal(after.sides.find(s => s.own).level.id, b.pet.level.id);
   assert.notEqual(f.arena.s.pets[b.pet.id].readyId, b.pet.level.id);
+});
+
+test('both AI contestants reach provider HTTP while background preparation remains blocked', async t => {
+  const f = await modelFixture(t, { hold: true }), a = await f.client('NoWaitA'), b = await f.client('NoWaitB');
+  const waitFor = async (condition, failure) => {
+    const deadline = Date.now() + 2000;
+    while (!condition()) { assert.ok(Date.now() < deadline, failure); await delay(10); }
+  };
+  await waitFor(() => f.held.length === 2 || (f.held.length === 1 && f.brain.preparationQueue?.length === 1), 'both background preparations must have requested service');
+  const match = await a.call('/api/challenges', { opponentId: b.pet.id });
+  await waitFor(() => f.requests.filter(r => r.messages[0].content.startsWith('Play Sokoban')).length === 2, 'two contestant HTTP requests should start before any generation is released');
+  assert.equal(f.behavior.hold, true);
+  assert.equal(f.held.length, 1, 'only one background request occupies provider concurrency');
+  assert.ok(f.arena.s.pets[a.pet.id].preparing && f.arena.s.pets[b.pet.id].preparing);
+  assert.equal(match.sides.find(s => s.own).level.id, b.pet.level.id);
+  f.release(); await f.arena.idle();
+  assert.ok((await a.call(`/api/challenges/${match.id}`)).sides.every(s => s.agent.status === 'cleared'));
 });
 
 test('bad model generation keeps old verified level; no silent algorithm fallback labelled model', async t => {

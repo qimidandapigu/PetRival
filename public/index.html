@@ -3,14 +3,16 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#263e32">
-  <title>PetRival · 晴风小院</title>
+  <title>PetRival · 宠物擂台与晴风小院</title>
+  <link rel="icon" href="/pet-badge.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/cloud.css">
   <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/pet-editor.css"><link rel="stylesheet" href="/duel.css"><link rel="stylesheet" href="/companion.css"><link rel="stylesheet" href="/world.css">
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
-  <header class="topbar"><a href="/" class="brand"><span class="brand-mark">P<span>R</span></span><span>PETRIVAL<small>和你的小伙伴，过小日子</small></span></a><div class="top-right"><span class="pill" id="mode">连接中</span><span class="live-dot"></span><span>早期试玩版</span></div></header>
+  <header class="topbar"><a href="/" class="brand"><span class="brand-mark">P<span>R</span></span><span>PETRIVAL<small>和你的小伙伴，过小日子</small></span></a><div class="top-right"><span class="pill" id="mode">连接中</span><span id="account-state" class="pill">连接存档中</span><span>早期试玩版</span></div></header>
   <main>
-    <section class="home-heading"><div><span class="eyebrow">A LITTLE WORLD, A LIFE TOGETHER</span><h1>日子很慢，有你刚好。</h1></div><nav aria-label="小院导航"><a href="#pet-world" class="current">我的小院</a><a href="#game-library">游戏小屋</a><a href="#pet-skills">宠物成长</a></nav></section>
+    <section class="home-heading"><div><span class="eyebrow">A LITTLE WORLD, A LIFE TOGETHER</span><h1>日子很慢，有你刚好。</h1></div><nav aria-label="小院导航"><a href="#pet-world" class="current">我的小院</a><a href="#game-library">游戏小屋</a><a href="#pet-skills">宠物成长</a><a href="#rankings">积分榜</a></nav></section>
     <div id="notice" class="notice" role="status" hidden></div>
     <div id="companion-hub" class="companion-hub"></div>
     <div class="layout"><div class="main-column">
@@ -19,10 +21,11 @@
       <section class="panel"><div class="section-heading"><div><span class="eyebrow">CHALLENGE LOG</span><h2>我的挑战</h2></div><span class="muted">不用同时在线</span></div><div id="matches"></div></section>
     </div><aside>
       <section class="panel skills-panel" id="pet-skills" aria-label="宠物技能库"></section>
-      <section class="panel ladder"><div class="section-heading"><div><span class="eyebrow">PET LEADERBOARD</span><h2>宠物排行榜</h2></div><span class="trophy">♜</span></div><div id="leaderboard"></div><p class="fine">累计挑战分优先，同分比计分用时。训练宠物不占榜。</p></section>
+      <section class="panel ladder" id="rankings"><div class="section-heading"><div><span class="eyebrow">PET LEADERBOARD</span><h2>宠物排行榜</h2></div><span class="trophy">♜</span></div><div id="leaderboard"></div><p class="fine">累计挑战分优先，同分比计分用时。训练宠物不占榜。</p></section>
+      <section class="panel" id="score-ledger" hidden><div class="section-heading"><h2>我的积分明细</h2><button id="load-ledger">查看</button></div><div id="ledger-entries"><p class="fine">每场正式比赛的积分变化都会保存。</p></div></section>
       <section class="rule-card"><span class="eyebrow">HOW TO RIVAL</span><h3>出题在后台，<br>好胜在当下。</h3><ol><li><b>各自备一关</b><span>先验证有解，换题不打断对战</span></li><li><b>挑战对方的题</b><span>主人和宠物分别闯关</span></li><li><b>一起拿下积分</b><span>通关 +100 · 失败 −20</span></li></ol><p>真人开始后限时 3 分钟。分数相同比通关用时，失败按完整时限计时。24 小时未完成的对局作废，不扣分。</p></section>
     </aside></div>
-    <footer>PetRival <span>·</span> A small world for clever companions.<span class="footer-right">独立游戏 / 本地原型</span></footer>
+    <footer>PetRival <span>·</span> A small world for clever companions.<span class="footer-right">宠物生活与推箱子</span></footer>
   </main>
   <dialog id="game-dialog">
     <div class="dialog-top"><div><span class="eyebrow" id="game-kind">挑战</span><h2 id="game-title"></h2></div><button class="icon-button" id="close-game" aria-label="关闭游戏">×</button></div>

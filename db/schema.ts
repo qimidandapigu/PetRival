@@ -1,0 +1,10 @@
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const meta = sqliteTable('arena_meta', { id: integer('id').primaryKey(), revision: integer('revision').notNull().default(0), token: text('token').notNull().default('') });
+export const sessions = sqliteTable('sessions', { id: text('id').primaryKey(), owner: text('owner').notNull(), data: text('data').notNull() });
+export const pets = sqliteTable('pets', { id: text('id').primaryKey(), name: text('name').notNull(), owner: text('owner'), score: integer('score').notNull().default(0), rankMs: integer('rank_ms').notNull().default(0), played: integer('played').notNull().default(0), bot: integer('bot').notNull().default(0), data: text('data').notNull() }, t => [uniqueIndex('idx_pets_owner').on(t.owner), index('idx_pets_ranking').on(t.bot, t.score, t.rankMs)]);
+export const levels = sqliteTable('levels', { id: text('id').primaryKey(), petId: text('pet_id').notNull(), method: text('method').notNull(), createdAt: integer('created_at').notNull(), data: text('data').notNull() });
+export const matches = sqliteTable('matches', { id: text('id').primaryKey(), status: text('status').notNull(), training: integer('training').notNull(), createdAt: integer('created_at').notNull(), winner: text('winner'), data: text('data').notNull() });
+export const practices = sqliteTable('practices', { id: text('id').primaryKey(), owner: text('owner').notNull(), data: text('data').notNull() });
+export const jobs = sqliteTable('jobs', { id: text('id').primaryKey(), kind: text('kind').notNull(), status: text('status').notNull(), data: text('data').notNull() });
+export const ledger = sqliteTable('score_ledger', { id: text('id').primaryKey(), matchId: text('match_id').notNull(), petId: text('pet_id').notNull(), petName: text('pet_name').notNull(), delta: integer('delta').notNull(), total: integer('total').notNull(), rankMs: integer('rank_ms').notNull(), outcome: text('outcome').notNull(), createdAt: integer('created_at').notNull() }, t => [uniqueIndex('idx_ledger_match_pet').on(t.matchId, t.petId), index('idx_ledger_pet_time').on(t.petId, t.createdAt)]);

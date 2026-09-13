@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const paths = [];
-function walk(dir) { for (const e of readdirSync(dir, { withFileTypes: true })) { if (['.git', 'data', 'node_modules', '.artifacts'].includes(e.name) || e.name === '.env') continue; const p = join(dir, e.name); if (e.isDirectory()) walk(p); else paths.push(p); } }
+function walk(dir) { for (const e of readdirSync(dir, { withFileTypes: true })) { if (['.git', 'data', 'node_modules', '.artifacts', 'sites-app', 'dist', '.wrangler', '.sites-runtime'].includes(e.name) || e.name === '.env') continue; const p = join(dir, e.name); if (e.isDirectory()) walk(p); else paths.push(p); } }
 walk('.'); let failures = 0;
 for (const file of paths) {
   if (file.endsWith('.mjs')) {

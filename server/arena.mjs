@@ -11,7 +11,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const pendingRun = () => ({ status: 'pending', actions: '', score: null });
 
 export class Arena {
-  constructor(store, brain, { now = Date.now } = {}) {
+  constructor(store, brain, { now = Date.now, recover = true } = {}) {
     this.store = store; this.s = store.state; this.brain = brain; this.now = now;
     this.generating = new Set(); this.playing = new Set(); this.tasks = new Set(); this.closed = false;
     this.agentControllers = new Map(); this.practices = new Map();
@@ -26,10 +26,10 @@ export class Arena {
       ensureGrowth(pet);
       ensureLife(pet, this.now());
       if (!pet.chat) pet.chat = { messages: [], requests: [] };
-      for (const request of pet.chat.requests) if (request.status === 'pending') request.status = 'failed';
-      if (pet.preparing) { pet.preparing = false; pet.prepareError = '上次备题被中断，原关卡仍可用'; }
+      if (recover) for (const request of pet.chat.requests) if (request.status === 'pending') request.status = 'failed';
+      if (recover && pet.preparing) { pet.preparing = false; pet.prepareError = '上次备题被中断，原关卡仍可用'; }
     }
-    for (const match of Object.values(this.s.challenges)) if (match.status === 'active') {
+    for (const match of Object.values(this.s.challenges)) if (recover && match.status === 'active') {
       if (match.sides.some(side => side.agent.status === 'running')) {
         // Restart cannot replay a published prefix with a fresh competitive clock.
         match.status = 'void'; match.voidReason = '服务重启中断了宠物执行，本场作废，不计分';

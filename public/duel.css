@@ -12,6 +12,9 @@
 .agent-column,.board-column{min-width:0;width:100%}
 .agent-column .board{border-color:#64818a;background:#64818a;box-shadow:0 5px #d8e2df}
 .agent-note{min-height:40px;font-size:12px;line-height:1.8;color:#577278;background:#edf3ef;border:1px solid #dce6df;border-radius:7px;padding:12px;margin-top:16px}
+.agent-note.waiting::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#668d78;margin-right:7px;animation:thinking-pulse 1.4s ease-in-out infinite}
+@keyframes thinking-pulse{50%{opacity:.3}}
+@media(prefers-reduced-motion:reduce){.agent-note.waiting::before{animation:none}}
 .lane-footnote{font-size:10px;color:#8b9985;text-align:center}
 .game-summary{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;border-top:1px solid var(--line);padding:20px 28px}
 .game-summary #agent-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.game-summary .agent-block{margin:0}

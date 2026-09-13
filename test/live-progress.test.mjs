@@ -149,13 +149,36 @@ test('close aborts active provider HTTP calls and queued requests without waitin
     { role: 'system', content: 'Play Sokoban' },
     { role: 'user', content: JSON.stringify({ rows: board.rows, turn: 1 }) },
   ];
-  const calls = Promise.allSettled([f.brain.json(input), f.brain.json(input), f.brain.json(input)]);
-  await until(() => f.first.length === 2 && f.brain.queue.length === 1, 'active and queued HTTP calls should exist');
+  const calls = Promise.allSettled([f.brain.json(input), f.brain.json(input), f.brain.json(input),
+    f.brain.json(input, { lane: 'preparation' }), f.brain.json(input, { lane: 'preparation' })]);
+  await until(() => f.first.length === 3 && f.brain.queue.length === 1 && f.brain.preparationQueue.length === 1, 'active and queued HTTP calls should exist in both lanes');
   f.brain.close();
   const results = await Promise.race([calls, delay(1000).then(() => { throw new Error('close did not cancel calls'); })]);
   assert.ok(results.every(r => r.status === 'rejected'));
   assert.equal(f.brain.calls, 0); assert.equal(f.brain.queue.length, 0);
-  assert.equal(f.requests.length, 2, 'queued request was never sent');
+  assert.equal(f.brain.preparationCalls, 0); assert.equal(f.brain.preparationQueue.length, 0);
+  assert.equal(f.requests.length, 3, 'queued requests in neither lane were sent');
+});
+
+test('both provider lanes have bounded queues and at most three total active HTTP requests', async t => {
+  const f = await fixture(t), board = generate(53), input = [
+    { role: 'system', content: 'Play Sokoban' },
+    { role: 'user', content: JSON.stringify({ rows: board.rows, turn: 1 }) },
+  ];
+  const failures = [];
+  const request = options => f.brain.json(input, options).catch(error => { failures.push(error); throw error; });
+  const settled = Promise.allSettled([
+    ...Array.from({ length: 19 }, () => request()),
+    ...Array.from({ length: 18 }, () => request({ lane: 'preparation' })),
+  ]);
+  await until(() => f.first.length === 3 && failures.length === 2, 'both lane overflow requests should fail without reaching provider');
+  assert.equal(f.brain.calls, 2); assert.equal(f.brain.preparationCalls, 1);
+  assert.equal(f.brain.queue.length, 16); assert.equal(f.brain.preparationQueue.length, 16);
+  assert.ok(failures.every(error => /排队已满/.test(error.message)));
+  f.brain.close(); await settled;
+  assert.equal(f.requests.length, 3);
+  assert.equal(f.brain.calls + f.brain.preparationCalls, 0);
+  assert.equal(f.brain.queue.length + f.brain.preparationQueue.length, 0);
 });
 
 test('default DeepSeek Pro request sends high thinking with reasoning-sized budget and no secret metadata', async t => {

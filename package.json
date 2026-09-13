@@ -4,11 +4,26 @@
   "private": true,
   "type": "module",
   "description": "AI pets prepare puzzles, humans and pets challenge rivals.",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env server/index.mjs",
     "dev": "node --watch --env-file-if-exists=.env server/index.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "build": "node scripts/build.mjs",
+    "test:cloud": "node --test cloud-test/*.test.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "dev:cloud": "wrangler dev --local --ip 127.0.0.1 --port 4389"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.10",
+    "esbuild": "^0.25.0",
+    "wrangler": "4.92.0"
   }
 }

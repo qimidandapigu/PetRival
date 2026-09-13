@@ -94,7 +94,7 @@ export function createCompanionHub({ api, notify, refresh, onPlay }) {
   async function loadHistory() {
     if (!state?.mine || busy) return;
     const currentPet = state.mine.id; loading = true; controls();
-    try { const result = await api('/api/pets/chat'); if (state.mine?.id === currentPet) { messages = result.messages; drawMessages(); feedback(''); } }
+    try { const result = await api('/api/pets/chat'); if (state.mine?.id === currentPet) { messages = result.messages; drawMessages(); feedback(''); if (result.pending) setTimeout(() => { if (state.mine?.id === currentPet) loadHistory(); }, 1500); } }
     catch (err) { feedback(`对话记录暂时没加载成功：${err.message}`); }
     finally { loading = false; controls(); }
   }
@@ -104,7 +104,14 @@ export function createCompanionHub({ api, notify, refresh, onPlay }) {
     const request = failedRequest?.message === text ? failedRequest : { message: text, requestId: crypto.randomUUID() };
     busy = true; feedback(''); controls(); drawMessages(text);
     try {
-      const result = await api('/api/pets/chat', request);
+      let result = await api('/api/pets/chat', request);
+      const started = Date.now();
+      while (result.request?.status === 'pending') {
+        if (Date.now() - started > 180000) throw new Error('回复仍在排队或处理中，请稍后重试');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        result = await api('/api/pets/chat?requestId=' + encodeURIComponent(request.requestId));
+      }
+      if (result.request?.status === 'failed') throw new Error(result.request.error || '宠物暂时无法回复');
       messages = result.messages; failedRequest = null;
       if (result.life) { acceptLife(result.life); renderLife(state.mine.life); }
       if ($('#chat-input').value.trim() === text) $('#chat-input').value = '';

@@ -44,28 +44,32 @@ export class PetBrain {
     }
     this.deepseek = new URL(this.url).hostname === 'api.deepseek.com';
     this.calls = 0; this.queue = []; this.closed = false; this.stop = new AbortController();
+    // Background preparation cannot occupy either of the two contestant request slots.
+    this.preparationCalls = 0; this.preparationQueue = [];
   }
   info() { return { mode: this.mode, model: this.mode === 'model' ? this.model : null }; }
-  async acquire(signal) {
+  async acquire(signal, lane = 'foreground') {
     signal.throwIfAborted();
-    if (this.calls < 2) { this.calls++; return; }
-    if (this.queue.length >= 16) throw new ProviderUnavailable('模型任务排队已满');
+    const preparing = lane === 'preparation', countKey = preparing ? 'preparationCalls' : 'calls', queueKey = preparing ? 'preparationQueue' : 'queue';
+    if (this[countKey] < (preparing ? 1 : 2)) { this[countKey]++; return; }
+    if (this[queueKey].length >= 16) throw new ProviderUnavailable('模型任务排队已满');
     await new Promise((resolve, reject) => {
       const waiter = { resolve: () => { signal.removeEventListener('abort', aborted); resolve(); } };
-      const aborted = () => { this.queue = this.queue.filter(w => w !== waiter); reject(signal.reason); };
+      const aborted = () => { this[queueKey] = this[queueKey].filter(w => w !== waiter); reject(signal.reason); };
       signal.addEventListener('abort', aborted, { once: true });
-      this.queue.push(waiter);
+      this[queueKey].push(waiter);
     });
   }
-  async json(messages, { signal, timeoutMs = 240000, maxTokens = 16384, thinking = 'enabled', reasoningEffort = 'high' } = {}) {
+  async json(messages, { signal, timeoutMs = 240000, lane = 'foreground', maxTokens = 16384, thinking = 'enabled', reasoningEffort = 'high' } = {}) {
     if (this.closed) throw new Error('服务已停止');
+    if (!['foreground', 'preparation'].includes(lane)) throw new Error('未知模型任务类型');
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(new ProviderUnavailable('模型服务响应超时')), timeoutMs);
-    timer.unref();
+    timer.unref?.();
     const combined = AbortSignal.any([this.stop.signal, timeout.signal, ...(signal ? [signal] : [])]);
     let acquired = false;
     try {
-      await this.acquire(combined); acquired = true;
+      await this.acquire(combined, lane); acquired = true;
       let body;
       try {
         combined.throwIfAborted();
@@ -83,7 +87,11 @@ export class PetBrain {
       return JSON.parse(content.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
     } finally {
       clearTimeout(timer);
-      if (acquired) { const next = this.queue.shift(); if (next) next.resolve(); else this.calls--; }
+      if (acquired) {
+        const preparing = lane === 'preparation', queue = preparing ? this.preparationQueue : this.queue;
+        const next = queue.shift();
+        if (next) next.resolve(); else if (preparing) this.preparationCalls--; else this.calls--;
+      }
     }
   }
   async chat({ name, gameId = 'sokoban', progression = {}, life, history = [] }) {
@@ -196,7 +204,7 @@ export class PetBrain {
     for (let attempt = 0; attempt < 2; attempt++) {
       let result;
       try {
-        result = await this.json(messages);
+        result = await this.json(messages, { lane: 'preparation' });
         parse(result.rows);
         const proof = await this.jobs.run('solve', { rows: result.rows });
         if (!proof.solved || !proof.actions) throw new Error('未验证有解，或关卡已经完成');
@@ -211,7 +219,7 @@ export class PetBrain {
     // Only public board data crosses this boundary. No generation proof, owner chat or human replay.
     const started = this.now(), deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(new PlayDeadline('宠物挑战超时')), RULES.limitMs);
-    timer.unref();
+    timer.unref?.();
     const combined = AbortSignal.any([deadline.signal, this.stop.signal, ...(signal ? [signal] : [])]);
     let actions = '', current = replay(rows, ''), note = '正在思考路线，你可以同时开始闯关';
     const snapshot = () => ({ actions, steps: current.steps, elapsedMs: Math.max(1, this.now() - started), method: this.mode, model: this.info().model, note });

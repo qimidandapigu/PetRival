@@ -8,6 +8,7 @@ const method = value => value === 'model' ? '大模型' : value === 'algorithm-s
 const status = run => ({ pending: '还未开始', running: '正在挑战', cleared: '已通关', failed: '未通关', error: '服务暂不可用', not_applicable: '训练对手 · 无真人' }[run.status] || run.status);
 let state, game = null, submitting = false, replayTimer = null, clockOffset = 0, refreshing = false, pollingMatch = false, companion;
 const homeBindings = new WeakMap();
+let backgroundStarted = false;
 function bind(selector, event, handler) {
   const element = $(selector); if (!element) return;
   const previous = homeBindings.get(element);
@@ -20,18 +21,31 @@ function notify(message, error = false) {
   clearTimeout(notify.timer); notify.timer = setTimeout(() => { n.hidden = true; }, 8000);
 }
 async function api(path, data) {
-  const res = await fetch(path, data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-  const body = await res.json(); if (!res.ok) throw new Error(body.error || '请求失败'); return body;
+  // A stalled progress read must release the polling lock. Never retry writes here.
+  const controller = data === undefined ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
+  try {
+    const res = await fetch(path, data === undefined ? { signal: controller.signal } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const body = await res.json(); if (!res.ok) throw new Error(body.error || '请求失败'); return body;
+  } catch (error) {
+    if (controller?.signal.aborted) throw new Error('读取超时');
+    throw error;
+  } finally { if (timer !== null) clearTimeout(timer); }
 }
 async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
     state = await api('/api/state'); clockOffset = state.now - Date.now(); render();
+    if (state.storage === 'D1' && !backgroundStarted) {
+      backgroundStarted = true; runBackgroundLane('foreground'); runBackgroundLane('foreground'); runBackgroundLane('preparation');
+    }
   } catch (e) { notify(e.message, true); } finally { refreshing = false; }
 }
 function render() {
   $('#mode').textContent = state.mode === 'model' ? (state.model === 'deepseek-v4-pro' ? 'DeepSeek Pro' : state.model || '大模型已配置') : '算法 AI · 无需密钥';
   const mine = state.mine;
+  if ($('#account-state')) $('#account-state').textContent = state.storage === 'D1' ? (state.signedIn ? '账号云存档' : '游客云存档 · 仅当前浏览器') : '本地服务存档';
+  if ($('#score-ledger')) $('#score-ledger').hidden = state.storage !== 'D1';
   companion ||= createCompanionHub({ api, notify, refresh, onPlay: startTogether });
   companion.update(state);
   if ($('#hero-pet')) $('#hero-pet').innerHTML = avatar(mine || 'xiaotangyuan');
@@ -55,6 +69,13 @@ function render() {
   bindHome();
 }
 function bindHome() {
+  bind('#load-ledger', 'click', async () => {
+    try {
+      const result = await api('/api/score-ledger');
+      $('#ledger-entries').innerHTML = result.entries.length ? `<div class="ledger-scroll"><table><thead><tr><th>结算时间</th><th>结果</th><th>积分变化</th><th>累计积分</th></tr></thead><tbody>${result.entries.map(entry => `<tr><td>${new Date(entry.created_at).toLocaleString('zh-CN')}</td><td>${{win:'获胜',loss:'惜败',draw:'平局'}[entry.outcome]}</td><td>${entry.delta > 0 ? '+' : ''}${entry.delta}</td><td>${entry.total}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">还没有正式对局的积分记录。训练赛不计榜。</p>';
+    } catch (error) { notify(error.message, true); }
+  });
+
   bind('#adopt', 'submit', async e => {
     e.preventDefault(); const f = new FormData(e.target), button = e.target.querySelector('button'); button.disabled = true;
     try { await api('/api/pets', { name: f.get('name'), species: f.get('species'), defense: f.get('defense') === 'on' }); document.activeElement?.blur(); await refresh(); notify('搭档住进小院了！陪它散散步，或者聊聊天吧。'); document.querySelector('#pet-world')?.scrollIntoView({ behavior: 'smooth' }); }
@@ -96,7 +117,11 @@ async function openMatch(id) {
   if (m.status === 'active' && own.human.status === 'pending') m = await api(`/api/challenges/${id}/start`, {});
   clearInterval(replayTimer);
   game = { kind: 'challenge', id, match: m, level: own.level, actions: '' };
-  try { const saved = localStorage.getItem(storeKey()) || ''; replay(game.level.rows, saved); game.actions = saved; } catch { game.actions = ''; }
+  try {
+    const human = m.sides.find(s => s.own).human;
+    const saved = ['cleared', 'failed'].includes(human.status) && typeof human.actions === 'string' ? human.actions : localStorage.getItem(storeKey()) || '';
+    replay(game.level.rows, saved); game.actions = saved;
+  } catch { game.actions = ''; }
   $('#game-kind').textContent = m.training ? 'TRAINING · 训练挑战，不计榜' : 'RANKED · 宠物积分挑战';
   $('#game-title').textContent = `挑战 ${m.sides.find(s => !s.own).pet.name} 的守擂关`;
   showDialog(); drawBoard(); renderSide(); updateClock();
@@ -107,8 +132,8 @@ function openPractice(level) {
   $('#game-kind').textContent = 'PRACTICE · 自己的守擂关，不计分'; $('#game-title').textContent = `${state.mine.name} 出的题`;
   showDialog(); drawBoard(); renderSide(); updateClock();
 }
-function openReplay(level, actions, title, note, pet = state.mine) {
-  clearInterval(replayTimer); game = { kind: 'replay', level, actions: '', replayActions: '', replayLength: actions.length, replayPet: pet, note };
+function openReplay(level, actions, title, note, pet = state.mine, run = {}) {
+  clearInterval(replayTimer); game = { kind: 'replay', level, actions: '', replayActions: '', replayLength: actions.length, replayPet: pet, replayRun: run, note };
   $('#game-kind').textContent = 'REPLAY · 真实执行记录'; $('#game-title').textContent = title;
   showDialog(); drawBoard(); renderSide(); updateClock();
   let index = 0;
@@ -131,11 +156,17 @@ function drawAgent() {
   $('#agent-name').textContent = `${pet.name} · AI`;
   $('#agent-board').innerHTML = boardMarkup(game.level.rows, run?.actions || '', pet);
   $('#agent-steps').textContent = `${run?.steps || 0} 步`;
-  $('#agent-status').textContent = run ? status(run) : '等待一起出发';
-  $('#agent-note').textContent = run?.note || (run?.status === 'running' ? '独立思考中，你可以同时操作右边。' : '挑战时，宠物会在这里和你一起闯关。');
+  drawAgentFeedback(run);
   const elapsed = run?.status === 'running' && run.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
   $('#agent-clock').textContent = run ? duration(elapsed || 0) : '00:00';
-  $('#agent-model').textContent = run?.model || (state.mode === 'model' ? state.model || 'DeepSeek Pro' : '算法 AI');
+  $('#agent-model').textContent = game.kind === 'replay' ? game.replayRun.model || method(game.replayRun.method) : run?.model || (state.mode === 'model' ? state.model || 'DeepSeek Pro' : '算法 AI');
+}
+function drawAgentFeedback(run) {
+  const waiting = game.kind !== 'replay' && run?.status === 'running' && (!run.actions?.length || run.note?.includes('重新思考'));
+  const elapsed = run?.startedAt ? Date.now() + clockOffset - run.startedAt : run?.elapsedMs;
+  $('#agent-status').textContent = game.syncError ? '进度连接中断' : !run ? '本次仅真人试玩' : waiting ? (run.actions?.length ? '重新规划路线' : '等待第一步') : run.status === 'running' ? '正在执行动作' : status(run);
+  $('#agent-note').classList.toggle('waiting', waiting && !game.syncError);
+  $('#agent-note').textContent = game.syncError || (waiting ? `${run.actions?.length ? '宠物正在重新规划路线' : '宠物正在准备路线，尚未返回第一步'} · 已用 ${duration(elapsed)}。${(run.method || state.mode) === 'model' ? 'DeepSeek 会先思考整段路线，再开始移动，可能需要一分钟以上。' : ''}你可以继续玩右边，思考时间也计入 3 分钟时限。` : run?.note || (!run ? '这是单人试玩。返回主页选择“和宠物一起试跑”，即可让 AI 同时闯关。' : '宠物正在独立闯关。'));
 }
 async function pollMatch() {
   if (pollingMatch || submitting || !game || (game.kind !== 'challenge' && !game.practiceId) || document.hidden) return;
@@ -144,12 +175,12 @@ async function pollMatch() {
     if (current.kind === 'challenge') {
       const previousMatch = current.match;
       const match = await api(`/api/challenges/${current.id}`);
-      if (game === current && current.match === previousMatch) { game.match = match; renderSide(); updateClock(); }
+      if (game === current && current.match === previousMatch) { game.syncError = null; game.match = match; renderSide(); updateClock(); }
     } else if (current.practiceAgent?.status === 'running') {
       const practice = await api(`/api/practice/${current.practiceId}`);
-      if (game === current) { game.practiceAgent = practice.run; drawAgent(); updateClock(); }
+      if (game === current) { game.syncError = null; game.practiceAgent = practice.run; drawAgent(); updateClock(); }
     }
-  } catch (e) { if (game === current) $('#agent-note').textContent = `连接暂时中断，正在重连：${e.message}`; }
+  } catch (e) { if (game === current) { game.syncError = `连接暂时中断，正在重连：${e.message}。当前显示的是上次收到的进度。`; drawAgent(); } }
   finally { pollingMatch = false; }
 }
 function drawBoard() {
@@ -196,7 +227,8 @@ function renderSide() {
   if (!game) return;
   drawAgent();
   if (game.kind !== 'challenge') {
-    $('#agent-card').innerHTML = `<div class="agent-heading">${avatar(state.mine)}<div><h3>${escape(state.mine.name)}</h3><p>${game.kind === 'replay' ? escape(game.note) : '自己的关卡，放心练习'}</p></div></div>`;
+    const pet = game.replayPet || state.mine;
+    $('#agent-card').innerHTML = `<div class="agent-heading">${avatar(pet)}<div><h3>${escape(pet.name)}</h3><p>${game.kind === 'replay' ? escape(game.note) : '自己的关卡，放心练习'}</p></div></div>`;
     $('#result-card').innerHTML = `<div class="result"><b>${game.kind === 'replay' ? '回放仅展示已执行的操作' : '这张关卡已通过可解性验证'}</b><p>${game.kind === 'replay' ? '算法搜索与大模型模式均明确标注，不使用出题证明代替参赛操作。' : '自己试玩不计排名。可以撤销、重来，也可以从主页让宠物试跑。'}</p></div>`;
     return;
   }
@@ -204,7 +236,7 @@ function renderSide() {
   $('#agent-card').innerHTML = m.sides.map(s => `<div class="agent-block"><div class="agent-heading">${avatar(s.pet, 'small-pet')}<div><h3>${escape(s.pet.name)}${s.own ? ' · 你的搭档' : ''}</h3><p>${escape(s.agent.model || method(s.agent.method || state.mode))}</p></div></div><div class="run-line"><span>宠物</span><b>${status(s.agent)} ${s.agent.score == null ? '' : `${s.agent.score > 0 ? '+' : ''}${s.agent.score}`}</b></div><div class="run-line"><span>主人</span><b>${status(s.human)} ${s.human.score == null ? '' : `${s.human.score > 0 ? '+' : ''}${s.human.score}`}</b></div>${s.agent.actions && s.agent.status !== 'running' && ['cleared','failed'].includes(own.human.status) ? `<button data-replay="${s.pet.id}" class="wide">观看宠物回放 ▶</button>` : `<p class="fine">${s.own ? '左侧实时展示你的宠物进度。' : '对手的完整路线在你完成后显示。'}</p>`}</div>`).join('');
   $('#agent-card').querySelectorAll('[data-replay]').forEach(button => button.addEventListener('click', () => {
     const s = m.sides.find(s => s.pet.id === button.dataset.replay);
-    openReplay(s.level, s.agent.actions, `${s.pet.name} · 挑战回放`, `${method(s.agent.method)} · ${status(s.agent)} · ${s.agent.steps || 0} 步`, s.pet);
+    openReplay(s.level, s.agent.actions, `${s.pet.name} · 挑战回放`, `${method(s.agent.method)} · ${status(s.agent)} · ${s.agent.steps || 0} 步`, s.pet, s.agent);
   }));
   if (m.status === 'void') $('#result-card').innerHTML = `<div class="result"><h3>本场不计分</h3><p>${escape(m.voidReason)}</p></div>`;
   else if (m.status === 'done') {
@@ -219,8 +251,12 @@ function updateClock() {
   $('#clock').textContent = !run ? '不限时' : run.status === 'running' ? duration(run.deadline - Date.now() - clockOffset) : duration(run.elapsedMs || 0);
   if (run?.status === 'running' && run.deadline <= Date.now() + clockOffset) { $('#game-status').textContent = '时间到，等待服务端结算'; }
   const agent = game.kind === 'challenge' ? game.match.sides.find(s => s.own).agent : game.practiceAgent;
-  if (agent?.status === 'running' && agent.startedAt) $('#agent-clock').textContent = duration(Date.now() + clockOffset - agent.startedAt);
+  if (agent?.status === 'running' && agent.startedAt) {
+    $('#agent-clock').textContent = duration(Date.now() + clockOffset - agent.startedAt);
+    drawAgentFeedback(agent);
+  }
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { updateClock(); void pollMatch(); void refresh(); } });
 $('#refresh').addEventListener('click', refresh);
 $('#close-game').addEventListener('click', () => { $('#game-dialog').close(); clearInterval(replayTimer); game = null; });
 $('#game-dialog').addEventListener('cancel', () => { clearInterval(replayTimer); game = null; });
@@ -236,5 +272,23 @@ document.addEventListener('keydown', event => {
 setInterval(updateClock, 250);
 setInterval(pollMatch, 500);
 setInterval(() => { if (!document.hidden) refresh(); }, 2500);
+async function runBackgroundLane(lane) {
+  let delay = 1000;
+  try { const response = await fetch('/api/work?lane=' + lane, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); const result = await response.json(); delay = response.ok && result.worked ? 50 : 1500; }
+  catch { delay = 3000; }
+  setTimeout(() => runBackgroundLane(lane), delay);
+}
 try { await api('/api/session', {}); await refresh(); }
 catch (e) { $('#my-pet').innerHTML = '<div class="empty">连接失败，请刷新页面重试。</div>'; notify(e.message, true); }
+
+if (document.modelContext?.registerTool) {
+  const lifetime = new AbortController();
+  const tools = [
+    { name: 'get_pet_rankings', title: '查看宠物积分榜', description: '读取当前宠物积分排名、胜负和比赛场次，不创建比赛、不改变积分。', read: async () => { await refresh(); return state.leaderboard.map(p => ({ name: p.name, score: p.score, played: p.played, wins: p.wins, losses: p.losses })); } },
+    { name: 'get_my_score_history', title: '查看我的积分明细', description: '读取当前用户宠物最近 50 场正式比赛的积分变化，训练赛不在其中。', read: async () => api('/api/score-ledger') },
+  ];
+  for (const tool of tools) {
+    try { Promise.resolve(document.modelContext.registerTool({ name: tool.name, title: tool.title, description: tool.description, inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, untrustedContentHint: true }, execute(input) { if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) throw new Error('此工具不接受参数'); return tool.read(); } }, { signal: lifetime.signal })).catch(() => {}); } catch {}
+  }
+  window.addEventListener('pagehide', () => lifetime.abort(), { once: true });
+}
