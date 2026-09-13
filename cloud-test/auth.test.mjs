@@ -54,11 +54,27 @@ test('CloudBase verifies server-side against the configured environment and reje
   await assert.rejects(verifyCloudBase(config, token, async () => new Response('', { status: 400 })), { status: 401 });
   await assert.rejects(verifyCloudBase(config, token, async () => new Response('', { status: 302 })), { status: 503 });
 });
+test('authenticated CloudBase profiles may omit status but explicit inactive states and incomplete profiles fail closed', async t => {
+  t.mock.method(console, 'error', () => {});
+  const config = { CLOUDBASE_ENV_ID: envId }, token = 'test-verified-access-token';
+  const base = { sub: 'user123', phone_number: '+86 13800001234' };
+  for (const profile of [base, { ...base, status: null }, { ...base, status: 'ACTIVE' }]) {
+    assert.deepEqual(await verifyCloudBase(config, token, async () => Response.json(profile)), verified);
+  }
+  for (const profile of [
+    ...['DISABLED', 'BLOCKED', 'PENDING', 'DELETED', '', false, 0].map(status => ({ ...base, status })),
+    { ...base, is_anonymous: true }, { sub: base.sub }, { phone_number: base.phone_number },
+    null, {}, [], { data: base },
+  ]) await assert.rejects(verifyCloudBase(config, token, async () => Response.json(profile)), { status: 401 });
+  // Omitting optional metadata never bypasses upstream authentication.
+  await assert.rejects(verifyCloudBase(config, token, async () => Response.json(base, { status: 401 })), { status: 401 });
+});
+
 test('profile rejection identifies the failing check without logging identity or credentials', async t => {
   const messages = []; t.mock.method(console, 'error', (...args) => messages.push(args));
   for (const [profile, reason] of [
     [null, 'PROFILE_STATUS'],
-    [{ data: { sub: 'private-user', status: 'ACTIVE', phone_number: '+86 13800001234' } }, 'PROFILE_STATUS'],
+    [{ data: { sub: 'private-user', status: 'ACTIVE', phone_number: '+86 13800001234' } }, 'PROFILE_SUBJECT'],
     [{ sub: 'private-user', status: 'ACTIVE', phone_number: '13800001234' }, 'PROFILE_PHONE'],
     [{ sub: 'private-user', status: 'ACTIVE', phone_number: '+86 13800001234', is_anonymous: true }, 'PROFILE_ANONYMOUS'],
   ]) {

@@ -14,7 +14,7 @@
 
 默认游客直接游玩，不主动弹登录框、不自动发送短信。页面提醒游客身份依赖当前浏览器；登录框提供“暂不登录，继续玩”。游客进度同样写入 D1，但清除 Cookie、游客身份过期或换设备后可能无法找回。绑定手机号后通过账号恢复存档；登录不能代替数据库备份，也不承诺永久零丢失。
 
-Worker 将 SDK access token 发送到该环境的 `/auth/v1/user/me` 验证，检查有效用户及手机号。客户端自报用户 ID 不作为凭据。D1 中只保存环境与用户 ID、脱敏手机号、随机站点会话令牌的 SHA-256；不保存手机号原文、验证码或 CloudBase access token。
+Worker 将 SDK access token 发送到该环境的 `/auth/v1/user/me` 验证，检查有效用户及手机号。用户资料可不含 `status` 元数据；如明确返回状态，则必须是 `ACTIVE`。客户端自报用户 ID 不作为凭据。D1 中只保存环境与用户 ID、脱敏手机号、随机站点会话令牌的 SHA-256；不保存手机号原文、验证码或 CloudBase access token。
 
 站点 Cookie 为 HttpOnly、SameSite=Lax，HTTPS 下使用 Secure，有效期 30 天。退出使当前站点会话失效。其他设备的会话不受影响。SDK 自身使用浏览器 session 存储，其旧会话不会自动重新登录网站；打开登录框后若仍有 SDK 会话，可以手动点击“继续刚才已验证的登录”，由服务器重新验证该凭证。账号绑定失败后可使用原凭证重试，无需重复校验已用过的短信验证码。
 
@@ -38,4 +38,6 @@ Worker 将 SDK access token 发送到该环境的 `/auth/v1/user/me` 验证，�
 
 ## 账号资料拒绝诊断
 
-域名放行后，线上 `/api/auth/cloudbase` 曾返回 401；旧版将账号状态、用户编号、手机号格式及匿名账号四类原因混为“请使用已验证的中国大陆手机号登录”。改为显示 `PROFILE_STATUS`、`PROFILE_SUBJECT`、`PROFILE_PHONE`、`PROFILE_ANONYMOUS` 分类，并仅记录字段类型/格式、是否嵌套及布尔标志。不会记录完整资料、手机号、用户编号、验证码或 access token。保持原身份检查规则，未在缺少真实数据证据时放宽校验；具体根因待部署后的下一次账号绑定请求确认。
+域名放行后，线上 `/api/auth/cloudbase` 曾返回 401；旧版将账号状态、用户编号、手机号格式及匿名账号四类原因混为“请使用已验证的中国大陆手机号登录”。改为显示 `PROFILE_STATUS`、`PROFILE_SUBJECT`、`PROFILE_PHONE`、`PROFILE_ANONYMOUS` 分类，并仅记录字段类型/格式、是否嵌套及布尔标志。不会记录完整资料、手机号、用户编号、验证码或 access token。
+
+2026-09-14 已由生产日志确认根因：`status: missing, subject: valid, phone: valid, anonymous: false, wrapped: false`。CloudBase 已验证 bearer token 并返回有效身份，但响应没有 `status`。安装的 SDK 3.9.3 的 `oauth/dist/auth/models.d.ts` 中 `UserProfile` 也未声明必需的 `status`；旧代码将文档响应示例中的 `ACTIVE` 错当成必填条件。现在允许受信任 `/user/me` 响应省略/null 状态元数据，继续拒绝明确非 ACTIVE 状态、缺失/畸形用户编号及手机号、匿名资料、上游鉴权失败及嵌套/空响应。回归测试覆盖这些边界；真实账号绑定成功仍需部署后重试确认。
