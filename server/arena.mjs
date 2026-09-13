@@ -95,7 +95,7 @@ export class Arena {
     this.tick();
     const pet = this.mine(owner);
     const pets = Object.values(this.s.pets).map(p => this.publicPet(p));
-    return { now: this.now(), rules: RULES, mode: this.brain.mode, model: this.brain.info().model,
+    return { now: this.now(), rules: RULES, mode: this.brain.mode, model: this.brain.info().model, playEffort: this.brain.info().playEffort,
       mine: pet ? { ...this.publicPet(pet), intent: pet.intent, prepareError: pet.prepareError, level: this.levelView(pet.readyId) } : null,
       pets: pets.filter(p => p.id !== pet?.id),
       leaderboard: pets.filter(p => !p.bot).sort((a, b) => b.score - a.score || a.rankMs - b.rankMs || a.id.localeCompare(b.id)),
@@ -146,7 +146,7 @@ export class Arena {
       if (side.agent.status !== 'pending' || this.playing.has(key)) continue;
       const controller = new AbortController(); this.agentControllers.set(key, controller);
       this.playing.add(key); side.agent = { ...pendingRun(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs,
-        method: this.brain.mode, model: this.brain.info().model, note: '正在思考路线，你可以同时开始闯关' }; this.store.save();
+        method: this.brain.mode, model: this.brain.info().model, effort: this.brain.info().playEffort, note: '正在思考路线，你可以同时开始闯关' }; this.store.save();
       this.task(async () => {
         try {
           const rows = [...this.s.levels[side.levelId].rows];
@@ -258,7 +258,7 @@ export class Arena {
     // Only the most recent practice per owner is retained; inactive sessions expire after one hour.
     for (const [key, previous] of this.practices) if (previous.run.status !== 'running' && this.now() - previous.createdAt > 3600000) this.practices.delete(key);
     const practice = { id: randomUUID(), level: this.levelView(pet.readyId), createdAt: this.now(),
-      run: { ...pendingRun(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model,
+      run: { ...pendingRun(), status: 'running', startedAt: this.now(), deadline: this.now() + RULES.limitMs, method: this.brain.mode, model: this.brain.info().model, effort: this.brain.info().playEffort,
         note: '正在思考路线，你可以同时开始闯关' } };
     this.practices.set(owner, practice);
     this.task(async () => {

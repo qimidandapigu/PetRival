@@ -11,6 +11,8 @@ export class PetBrain {
     if (!['algorithm', 'model'].includes(this.mode)) throw new Error('AI_MODE 必须为 algorithm 或 model');
     this.url = env.MODEL_CHAT_URL || 'https://api.deepseek.com/chat/completions';
     this.model = env.MODEL_NAME || 'deepseek-v4-pro'; this.key = env.MODEL_API_KEY;
+    this.playEffort = env.MODEL_PLAY_EFFORT ?? 'high';
+    if (!['high', 'low', 'none'].includes(this.playEffort)) throw new Error('MODEL_PLAY_EFFORT 必须为 high、low 或 none');
     this.tokenParameter = env.MODEL_TOKEN_PARAMETER || 'max_tokens';
     if (!['max_tokens', 'max_completion_tokens'].includes(this.tokenParameter)) throw new Error('不支持的模型 Token 参数');
     if (this.mode === 'model') {
@@ -24,7 +26,7 @@ export class PetBrain {
     // Background preparation cannot occupy either of the two contestant request slots.
     this.preparationCalls = 0; this.preparationQueue = [];
   }
-  info() { return { mode: this.mode, model: this.mode === 'model' ? this.model : null }; }
+  info() { return { mode: this.mode, model: this.mode === 'model' ? this.model : null, playEffort: this.mode === 'model' && this.deepseek ? this.playEffort : null }; }
   async acquire(signal, lane = 'foreground') {
     signal.throwIfAborted();
     const preparing = lane === 'preparation', countKey = preparing ? 'preparationCalls' : 'calls', queueKey = preparing ? 'preparationQueue' : 'queue';
@@ -50,11 +52,12 @@ export class PetBrain {
       let body;
       try {
         combined.throwIfAborted();
+        const effort = lane === 'preparation' ? 'high' : this.playEffort;
         const response = await fetch(this.url, {
           method: 'POST', redirect: 'error', signal: combined,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.key}` },
           body: JSON.stringify({ model: this.model, messages, [this.tokenParameter]: 16384, response_format: { type: 'json_object' },
-            ...(this.deepseek ? { thinking: { type: 'enabled' }, reasoning_effort: 'high' } : {}) }),
+            ...(this.deepseek ? { thinking: { type: effort === 'none' ? 'disabled' : 'enabled' }, reasoning_effort: effort } : {}) }),
         });
         if (!response.ok) throw new Error();
         body = await response.json();
@@ -99,7 +102,7 @@ export class PetBrain {
     timer.unref();
     const combined = AbortSignal.any([deadline.signal, this.stop.signal, ...(signal ? [signal] : [])]);
     let actions = '', current = replay(rows, ''), note = '正在思考路线，你可以同时开始闯关';
-    const snapshot = () => ({ actions, steps: current.steps, elapsedMs: Math.max(1, this.now() - started), method: this.mode, model: this.info().model, note });
+    const snapshot = () => ({ actions, steps: current.steps, elapsedMs: Math.max(1, this.now() - started), method: this.mode, model: this.info().model, effort: this.info().playEffort, note });
     const check = () => {
       combined.throwIfAborted();
       if (this.now() - started >= RULES.limitMs) throw new PlayDeadline('宠物挑战超时');

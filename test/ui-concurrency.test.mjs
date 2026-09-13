@@ -128,7 +128,7 @@ test('an opponent replay animates only the AI lane and keeps that pet identity i
       const classes = new Set();
       nodes.set(selector, { textContent: '', innerHTML: '', open: false, classes,
         classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); } },
-        addEventListener() {}, showModal() { this.open = true; }, querySelectorAll() { return []; } });
+        addEventListener() {}, removeEventListener() {}, showModal() { this.open = true; }, querySelectorAll() { return []; } });
     }
     return nodes.get(selector);
   }
@@ -139,8 +139,10 @@ test('an opponent replay animates only the AI lane and keeps that pet identity i
   });
   const code = source.slice(source.indexOf('\n') + 1, source.lastIndexOf("try { await api('/api/session'"));
   vm.runInContext(code + `
-    state = { mine: { id: 'mine', name: '我的宠物' }, mode: 'model', model: 'deepseek-v4-pro' };
+    state = { mine: { id: 'mine', name: '我的宠物' }, mode: 'model', model: 'deepseek-v4-pro', playEffort: 'low' };
     this.playReplay = openReplay; this.currentGame = () => game;
+    this.showPracticeRun = (level, run) => { openPractice(level); game.practiceAgent = run; drawAgent(); };
+    this.showHome = effort => { state = { mine: null, mode: 'model', model: 'deepseek-v4-pro', playEffort: effort, pets: [], leaderboard: [], challenges: [] }; render(); };
   `, context);
   const level = generate(56), opponent = { id: 'opponent', name: '对手小狐狸', species: 'fox' };
   context.playReplay(level, level.proof, '对手小狐狸 · 挑战回放', '算法 AI · 已通关', opponent, { method: 'algorithm' });
@@ -156,4 +158,20 @@ test('an opponent replay animates only the AI lane and keeps that pet identity i
   assert.equal(node('#agent-model').textContent, '算法 AI', 'algorithm replay must not inherit the currently configured model badge');
   context.playReplay(level, level.proof, '对手小狐狸 · 挑战回放', '大模型 · 已通关', opponent, { method: 'model', model: 'recorded-model' });
   assert.equal(node('#agent-model').textContent, 'recorded-model', 'model replay uses its recorded provider model');
+  context.playReplay(level, level.proof, '历史高思考', '历史成绩', opponent, { method: 'model', model: 'recorded-model', effort: 'high' });
+  assert.equal(node('#agent-model').textContent, 'recorded-model · 高思考', 'replay must preserve recorded effort after the server switches to low');
+  context.showPracticeRun(level, { method: 'model', model: 'recorded-model', effort: 'none', status: 'running', actions: '' });
+  assert.equal(node('#agent-model').textContent, 'recorded-model · 关闭思考', 'a live practice uses its own snapshot');
+  context.showPracticeRun(level, { method: 'model', model: 'recorded-model', status: 'running', actions: '' });
+  assert.equal(node('#agent-model').textContent, 'recorded-model', 'unknown historical effort must not inherit current low effort');
+  context.showPracticeRun(level, { method: 'model', model: 'recorded-model', effort: 'low', status: 'running', actions: '' });
+  assert.equal(node('#agent-model').textContent, 'recorded-model · 低思考');
+  context.showHome('low');
+  assert.equal(node('#mode').textContent, 'DeepSeek Pro · 低思考');
+  context.showHome('high');
+  assert.equal(node('#mode').textContent, 'DeepSeek Pro · 高思考');
+  context.showHome('none');
+  assert.equal(node('#mode').textContent, 'DeepSeek Pro · 关闭思考');
+  context.showHome(undefined);
+  assert.equal(node('#mode').textContent, 'DeepSeek Pro');
 });
