@@ -54,6 +54,21 @@ test('CloudBase verifies server-side against the configured environment and reje
   await assert.rejects(verifyCloudBase(config, token, async () => new Response('', { status: 400 })), { status: 401 });
   await assert.rejects(verifyCloudBase(config, token, async () => new Response('', { status: 302 })), { status: 503 });
 });
+test('profile rejection identifies the failing check without logging identity or credentials', async t => {
+  const messages = []; t.mock.method(console, 'error', (...args) => messages.push(args));
+  for (const [profile, reason] of [
+    [null, 'PROFILE_STATUS'],
+    [{ data: { sub: 'private-user', status: 'ACTIVE', phone_number: '+86 13800001234' } }, 'PROFILE_STATUS'],
+    [{ sub: 'private-user', status: 'ACTIVE', phone_number: '13800001234' }, 'PROFILE_PHONE'],
+    [{ sub: 'private-user', status: 'ACTIVE', phone_number: '+86 13800001234', is_anonymous: true }, 'PROFILE_ANONYMOUS'],
+  ]) {
+    await assert.rejects(verifyCloudBase({ CLOUDBASE_ENV_ID: envId }, 'private-access-token-test', async () => Response.json(profile)), error => error.status === 401 && error.message.includes(reason));
+  }
+  const logged = JSON.stringify(messages);
+  for (const privateValue of ['private-user', '13800001234', 'private-access-token-test']) assert.equal(logged.includes(privateValue), false);
+  assert.match(logged, /national-cn/); assert.match(logged, /wrapped/);
+});
+
 test('guest save binds atomically, retains pet data, persists across devices, and logout revokes only that session', async () => {
   const f = fixture(); const guest = await f.act(a => a.session());
   const pet = await f.act(a => a.createPet(guest.owner, { name: '汤圆', species: 'xiaotangyuan' }));

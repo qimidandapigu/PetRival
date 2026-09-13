@@ -16,7 +16,7 @@
 
 Worker 将 SDK access token 发送到该环境的 `/auth/v1/user/me` 验证，检查有效用户及手机号。客户端自报用户 ID 不作为凭据。D1 中只保存环境与用户 ID、脱敏手机号、随机站点会话令牌的 SHA-256；不保存手机号原文、验证码或 CloudBase access token。
 
-站点 Cookie 为 HttpOnly、SameSite=Lax，HTTPS 下使用 Secure，有效期 30 天。退出使当前站点会话失效。其他设备的会话不受影响。SDK 自身使用浏览器 session 存储，其旧会话不会自动重新登录网站。
+站点 Cookie 为 HttpOnly、SameSite=Lax，HTTPS 下使用 Secure，有效期 30 天。退出使当前站点会话失效。其他设备的会话不受影响。SDK 自身使用浏览器 session 存储，其旧会话不会自动重新登录网站；打开登录框后若仍有 SDK 会话，可以手动点击“继续刚才已验证的登录”，由服务器重新验证该凭证。账号绑定失败后可使用原凭证重试，无需重复校验已用过的短信验证码。
 
 首次绑定迁移当前游客或 Sites 账号宠物的所有权，保持宠物 ID、积分、小院、聊天和对局数据。若手机账号已有另一只宠物，返回冲突供用户选择，不合并积分、不覆盖存档。已登录的手机账号不会因切换手机号而迁移自己的宠物。更改手机号、关闭窗口会丢弃当前验证码证明；身份切换后刷新整个页面。
 
@@ -35,3 +35,7 @@ Worker 将 SDK access token 发送到该环境的 `/auth/v1/user/me` 验证，�
 页面对网络/CORS错误提供安全来源配置指引，同时保留网络故障可能性，不把所有网络错误一概判成白名单问题。未保存用户手机号或验证码。
 
 配置参考：[CloudBase 安全来源](https://docs.cloudbase.net/envconfig/security/intro)。
+
+## 账号资料拒绝诊断
+
+域名放行后，线上 `/api/auth/cloudbase` 曾返回 401；旧版将账号状态、用户编号、手机号格式及匿名账号四类原因混为“请使用已验证的中国大陆手机号登录”。改为显示 `PROFILE_STATUS`、`PROFILE_SUBJECT`、`PROFILE_PHONE`、`PROFILE_ANONYMOUS` 分类，并仅记录字段类型/格式、是否嵌套及布尔标志。不会记录完整资料、手机号、用户编号、验证码或 access token。保持原身份检查规则，未在缺少真实数据证据时放宽校验；具体根因待部署后的下一次账号绑定请求确认。

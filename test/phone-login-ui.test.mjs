@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-function fixture({ conflict = false, sendError } = {}) {
+function fixture({ conflict = false, sendError, exchangeFailures = 0, savedSession = null } = {}) {
   const elements = new Map(), calls = [], sent = [], checked = []; let reloads = 0;
   class Element {
     constructor() { this.events = {}; this.value = ''; this.hidden = false; this.disabled = false; }
@@ -17,11 +17,12 @@ function fixture({ conflict = false, sendError } = {}) {
   let button, dialog;
   const document = { querySelector: () => get('host'), body: new Element(), createElement(tag) { const e = new Element(); if (tag === 'button') button = e; else if (tag === 'dialog') dialog = e; return e; } };
   const context = { document, setInterval() {}, Date, location: { reload() { reloads++; } },
-    __sdk: { createAuth: () => ({ async signInWithOtp(params) { sent.push(params); if (sendError) return { error: sendError }; return { data: { verifyOtp: async params => { checked.push(params); return { data: { session: { access_token: 'test-access' } } }; } } }; } }) },
+    __sdk: { createAuth: () => ({ async getSession() { return { data: { session: savedSession } }; }, async signInWithOtp(params) { sent.push(params); if (sendError) return { error: sendError }; return { data: { verifyOtp: async params => { checked.push(params); return { data: { session: { access_token: 'test-access' } } }; } } }; } }) },
     fetch: async (path, options) => {
       const body = options?.body && JSON.parse(options.body); calls.push({ path, body });
       let data = path === '/api/auth/config' ? { enabled: true, envId: 'test' } : { ok: true }, ok = true;
       if (path === '/api/auth/cloudbase' && conflict && !body.useExisting) { ok = false; data = { code: 'account_has_pet', guestName: '游客宠物', accountName: '账号宠物' }; }
+      if (path === '/api/auth/cloudbase' && exchangeFailures-- > 0) { ok = false; data = { error: '账号资料校验未通过（PROFILE_PHONE）' }; }
       return { ok, json: async () => data };
     },
   };
@@ -75,4 +76,25 @@ test('SMS network and CORS failures explain safe-domain setup and leave guest pl
     assert.equal(f.sent.length, 1); assert.equal(f.reloads(), 0);
     await f.get('phone-skip').fire('click'); assert.equal(f.dialog.open, false);
   }
+});
+
+test('account exchange can retry its existing verified token without reusing OTP or sending another SMS', async () => {
+  const f = fixture({ exchangeFailures: 1 }); await f.button.fire('click');
+  f.get('phone-number').value = '13800001234'; await f.get('phone-send').fire('click');
+  f.get('phone-code').value = '123456'; await f.get('phone-form').fire('submit');
+  assert.equal(f.get('phone-code').value, ''); assert.equal(f.reloads(), 0);
+  assert.equal(f.get('phone-submit').textContent, '重试保存到账号');
+  await f.get('phone-form').fire('submit');
+  assert.equal(f.sent.length, 1); assert.equal(f.checked.length, 1); assert.equal(f.reloads(), 1);
+  assert.equal(f.calls.filter(c => c.path === '/api/auth/cloudbase').length, 2);
+});
+
+test('restoring a verified SDK session requires an explicit click and sends no SMS', async () => {
+  const f = fixture({ savedSession: { access_token: 'previous-session-token' } });
+  await f.button.fire('click'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.get('phone-resume').hidden, false);
+  assert.equal(f.calls.some(c => c.path === '/api/auth/cloudbase'), false);
+  await f.get('phone-resume').fire('click');
+  assert.equal(f.sent.length, 0); assert.equal(f.checked.length, 0); assert.equal(f.reloads(), 1);
+  assert.equal(f.calls.at(-1).body.accessToken, 'previous-session-token');
 });

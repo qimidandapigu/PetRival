@@ -16,13 +16,14 @@ if (host) {
     <p id="phone-status" role="status" aria-live="polite"></p>
     <button type="submit" class="primary" id="phone-submit" disabled>登录并保存宠物</button>
     <button type="button" id="phone-existing" hidden>使用账号已有存档</button>
+    <button type="button" id="phone-resume" hidden>继续刚才已验证的登录</button>
     <button type="button" id="phone-skip">暂不登录，继续玩</button>
     <button type="button" id="phone-logout" hidden>退出手机号账号</button>
     <p class="fine">验证码由腾讯云发送。未注册的手机号验证后自动注册。登录或退出会刷新页面，请先完成当前游戏。</p>
   </form>`;
   document.body.append(dialog);
   const $ = id => dialog.querySelector('#' + id), phone = $('phone-number'), code = $('phone-code'), send = $('phone-send'), submit = $('phone-submit');
-  let current, authPromise, verifyOtp, accessToken, busy = false, retryAt = 0;
+  let current, authPromise, verifyOtp, accessToken, resumedToken, busy = false, retryAt = 0, proofVersion = 0;
   const say = text => { $('phone-status').textContent = text; };
   async function request(path, body) {
     const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -38,8 +39,10 @@ if (host) {
   function controls() {
     const seconds = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
     send.disabled = busy || seconds > 0; send.textContent = seconds ? `${seconds} 秒后重发` : '获取验证码';
-    phone.disabled = busy; code.disabled = busy; submit.disabled = busy || !verifyOtp;
+    phone.disabled = busy; code.disabled = busy; submit.disabled = busy || (!verifyOtp && !accessToken);
+    submit.textContent = accessToken ? '重试保存到账号' : '登录并保存宠物';
     $('phone-existing').disabled = busy; $('phone-logout').disabled = busy;
+    $('phone-resume').disabled = busy;
     $('phone-close').disabled = busy;
     $('phone-skip').disabled = busy;
   }
@@ -78,9 +81,18 @@ if (host) {
     $('phone-save-note').textContent = signed ? '宠物、小院、对话和积分已保存在账号中。换设备登录同一手机号即可继续。' : '不登录也能继续玩。登录后，当前宠物、小院、对话和积分会绑定到手机号，换设备也能找回。若账号已有另一份存档，会先让你选择，不会覆盖。';
     for (const element of [phone, code, send, submit, ...dialog.querySelectorAll('label')]) element.hidden = signed;
     $('phone-logout').hidden = !signed; $('phone-skip').hidden = signed; dialog.showModal(); controls();
-    if (!signed) void auth().catch(() => { if (dialog.open && !busy) say('登录服务加载失败，请关闭窗口后重试。'); });
+    if (!signed) {
+      const version = proofVersion;
+      void (async () => {
+        const provider = await auth();
+        const result = await provider.getSession();
+        if (!dialog.open || busy || version !== proofVersion || result.error) return;
+        resumedToken = result.data?.session?.access_token || null;
+        $('phone-resume').hidden = !resumedToken;
+      })().catch(() => { if (dialog.open && !busy) say('登录服务加载失败，请关闭窗口后重试。'); });
+    }
   });
-  function clearProof() { verifyOtp = null; accessToken = null; code.value = ''; $('phone-existing').hidden = true; controls(); }
+  function clearProof() { proofVersion++; verifyOtp = null; accessToken = null; resumedToken = null; code.value = ''; $('phone-existing').hidden = true; $('phone-resume').hidden = true; controls(); }
   function dismiss() { clearProof(); phone.value = ''; say(''); }
   $('phone-close').addEventListener('click', () => { if (!busy) { dismiss(); dialog.close(); } });
   $('phone-skip').addEventListener('click', () => { if (!busy) { dismiss(); dialog.close(); } });
@@ -101,7 +113,12 @@ if (host) {
     finally { if (dialog.open) dialog.close(); dialog.showModal(); busy = false; controls(); if (verifyOtp) code.focus(); }
   });
   $('phone-form').addEventListener('submit', async event => {
-    event.preventDefault(); if (busy || !verifyOtp) return;
+    event.preventDefault(); if (busy || (!verifyOtp && !accessToken)) return;
+    if (accessToken) {
+      busy = true; controls(); say('正在重试账号绑定…');
+      try { await exchange(); } finally { busy = false; controls(); }
+      return;
+    }
     if (!/^\d{4,8}$/.test(code.value)) { say('请输入短信中的验证码。'); return; }
     busy = true; controls(); say('正在验证…');
     try {
@@ -117,6 +134,11 @@ if (host) {
   $('phone-existing').addEventListener('click', async () => {
     if (busy || !accessToken) return; busy = true; controls();
     try { await exchange(true); } finally { busy = false; controls(); }
+  });
+  $('phone-resume').addEventListener('click', async () => {
+    if (busy || !resumedToken) return;
+    accessToken = resumedToken; busy = true; controls(); say('正在读取已验证账号…');
+    try { await exchange(); } finally { busy = false; controls(); }
   });
   $('phone-logout').addEventListener('click', async () => {
     if (busy) return; busy = true; controls();
