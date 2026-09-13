@@ -41,7 +41,22 @@
       <section class="board-column" aria-label="右侧真人棋盘">
         <div class="lane-heading"><h3>你 · 真人</h3><span class="badge ready">方向键 / WASD</span></div>
         <div class="game-stats"><span id="game-status">准备出发</span><span id="steps">0 步</span><strong id="clock">03:00</strong></div>
-        <div id="board" class="board" role="group" aria-label="真人推箱子棋盘"></div>
+        <div class="board-shell" id="board-shell">
+          <div id="board" class="board" role="group" aria-label="真人推箱子棋盘"></div>
+          <section id="completion" class="completion" aria-label="你的通关成果" hidden>
+            <div class="completion-confetti" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="completion-card">
+              <span class="completion-seal" aria-hidden="true">✓</span>
+              <p class="completion-eyebrow" id="completion-label"></p>
+              <h3 id="completion-title" role="status" aria-live="polite"></h3>
+              <p id="completion-description" class="completion-description"></p>
+              <div class="completion-stats"><div><span>用时</span><strong id="completion-time"></strong></div><div><span>步数</span><strong id="completion-steps"></strong></div></div>
+              <p id="completion-note" class="completion-note"></p>
+              <button id="completion-primary" class="primary" type="button"></button>
+              <button id="completion-dismiss" class="completion-dismiss" type="button">看看棋盘</button>
+            </div>
+          </section>
+        </div>
         <div class="controls"><button id="undo">撤销 Z</button><button id="restart">重来 R</button><button id="give-up" class="danger">认输</button></div>
         <div class="dpad" aria-label="方向控制"><button data-dir="U" aria-label="向上">↑</button><div><button data-dir="L" aria-label="向左">←</button><button data-dir="D" aria-label="向下">↓</button><button data-dir="R" aria-label="向右">→</button></div></div>
         <p class="fine">将两个箱子推上花朵。撤销、重来不重置计时。</p>

@@ -128,7 +128,7 @@ async function openMatch(id) {
   if (m.status === 'active' && m.sides.find(s => s.own).human.status === 'running' && replay(game.level.rows, game.actions).won) await submit(false);
 }
 function openPractice(level) {
-  clearInterval(replayTimer); game = { kind: 'practice', level, actions: '' };
+  clearInterval(replayTimer); game = { kind: 'practice', level, actions: '', startedAt: Date.now() };
   $('#game-kind').textContent = 'PRACTICE · 自己的守擂关，不计分'; $('#game-title').textContent = `${state.mine.name} 出的题`;
   showDialog(); drawBoard(); renderSide(); updateClock();
 }
@@ -183,6 +183,43 @@ async function pollMatch() {
   } catch (e) { if (game === current) { game.syncError = `连接暂时中断，正在重连：${e.message}。当前显示的是上次收到的进度。`; drawAgent(); } }
   finally { pollingMatch = false; }
 }
+function completionView(current, result, isSubmitting) {
+  if (!current || current.kind === 'replay') return null;
+  if (current.kind === 'practice') return result.won ? {
+    confirmed: true, label: '全部归位 · 2 / 2', title: '漂亮，通关了！', description: '两个箱子，都到家啦。',
+    elapsedMs: Math.max(0, (current.completedAt || Date.now()) - (current.startedAt || Date.now())), steps: result.steps,
+    note: '试玩完成 · 不计排名', button: '再玩一次', action: 'restart',
+  } : null;
+  const match = current.match, human = match.sides.find(side => side.own).human;
+  if (match.status === 'void' || human.status === 'failed') return null;
+  if (human.status === 'cleared') return {
+    confirmed: true, label: '全部归位 · 2 / 2', title: '你已通关！', description: '这一关，拿下了。',
+    elapsedMs: human.elapsedMs, steps: result.steps,
+    note: match.status === 'done' ? '比赛已结束，完整结果见下方' : '你的成绩已确认，其他参与者继续挑战',
+    button: '继续看对局', action: 'dismiss',
+  };
+  if (!result.won || human.status !== 'running' || match.status !== 'active') return null;
+  return {
+    confirmed: false, label: '全部归位 · 2 / 2', title: '箱子都到家了！', description: '最后一步，推得漂亮。',
+    elapsedMs: null, steps: result.steps,
+    note: current.finishError ? '成绩暂未确认，操作已保留' : '正在确认你的通关成绩…',
+    button: current.finishError && !isSubmitting ? '重新确认成绩' : '继续看对局', action: current.finishError && !isSubmitting ? 'retry' : 'dismiss',
+  };
+}
+function drawCompletion(result) {
+  const view = completionView(game, result, submitting);
+  $('#board-shell').classList.toggle('is-cleared', Boolean(view?.confirmed));
+  $('#completion').hidden = !view || game.completionDismissed === true;
+  if (!view) return;
+  $('#completion').classList.toggle('confirmed', view.confirmed);
+  $('#completion-label').textContent = view.label;
+  $('#completion-title').textContent = view.title;
+  $('#completion-description').textContent = view.description;
+  $('#completion-time').textContent = view.elapsedMs === null ? '确认中' : duration(view.elapsedMs);
+  $('#completion-steps').textContent = view.steps;
+  $('#completion-note').textContent = view.note;
+  $('#completion-primary').textContent = view.button;
+}
 function drawBoard() {
   if (!game) return;
   $('#game-dialog').classList.toggle('replay-mode', game.kind === 'replay');
@@ -190,37 +227,40 @@ function drawBoard() {
   $('#board').innerHTML = boardMarkup(game.level.rows, game.actions, state.mine);
   $('#steps').textContent = `${result.steps} 步`;
   const locked = game.kind === 'replay' || (game.kind === 'challenge' && (game.match.status !== 'active' || game.match.sides.find(s => s.own).human.status !== 'running'));
-  for (const button of document.querySelectorAll('.controls button, .dpad button')) button.disabled = locked || submitting;
+  for (const button of document.querySelectorAll('.controls button, .dpad button')) button.disabled = locked || submitting || (result.won && !(game.kind === 'practice' && button.id === 'restart'));
   $('#give-up').hidden = game.kind !== 'challenge';
   $('#game-status').textContent = result.won ? '两个箱子都到家了！' : game.kind === 'replay' ? '正在播放宠物的路线' : locked ? '本次挑战已结束' : '把箱子推上花朵';
+  drawCompletion(result);
 }
 async function act(action) {
   if (!game || submitting || game.kind === 'replay') return;
   if (game.kind === 'challenge' && (game.match.status !== 'active' || game.match.sides.find(s => s.own).human.status !== 'running')) return;
   if (replay(game.level.rows, game.actions).won) {
     if (game.kind !== 'practice' || action !== 'X') return;
-    game.actions = '';
+    game.actions = ''; game.completedAt = null; game.startedAt = Date.now(); game.completionDismissed = false;
   } else game.actions += action;
   try {
     const result = replay(game.level.rows, game.actions);
+    if (result.won && !game.completedAt) game.completedAt = Date.now();
     if (game.kind === 'challenge') { try { localStorage.setItem(storeKey(), game.actions); } catch { /* storage may be unavailable; server remains authoritative */ } }
     drawBoard();
     if (result.won) {
       if (game.kind === 'challenge') await submit(false);
-      else { $('#result-card').innerHTML = '<div class="result success"><h3>试玩通关！</h3><p>这次不计分。准备好就向另一只宠物发起挑战吧。</p></div>'; }
+      else renderSide();
     }
+    else if (action === 'X' && game.kind === 'practice') renderSide();
   } catch (e) { game.actions = game.actions.slice(0, -1); notify(e.message, true); }
 }
 async function submit(giveUp) {
   if (!game || game.kind !== 'challenge' || submitting) return;
   const current = game;
-  submitting = true; drawBoard();
+  current.finishError = null; submitting = true; drawBoard();
   try {
     const result = await api(`/api/challenges/${current.id}/finish`, { actions: current.actions, giveUp });
     if (game === current) { game.match = result; renderSide(); }
     await refresh();
   }
-  catch (e) { notify(`${e.message}。操作已保留，可关闭后重新进入继续提交。`, true); }
+  catch (e) { if (game === current) current.finishError = e.message; notify(`${e.message}。操作已保留，可关闭后重新进入继续提交。`, true); }
   finally { submitting = false; drawBoard(); updateClock(); }
 }
 function renderSide() {
@@ -230,6 +270,7 @@ function renderSide() {
     const pet = game.replayPet || state.mine;
     $('#agent-card').innerHTML = `<div class="agent-heading">${avatar(pet)}<div><h3>${escape(pet.name)}</h3><p>${game.kind === 'replay' ? escape(game.note) : '自己的关卡，放心练习'}</p></div></div>`;
     $('#result-card').innerHTML = `<div class="result"><b>${game.kind === 'replay' ? '回放仅展示已执行的操作' : '这张关卡已通过可解性验证'}</b><p>${game.kind === 'replay' ? '算法搜索与大模型模式均明确标注，不使用出题证明代替参赛操作。' : '自己试玩不计排名。可以撤销、重来，也可以从主页让宠物试跑。'}</p></div>`;
+    if (game.kind === 'practice' && replay(game.level.rows, game.actions).won) $('#result-card').innerHTML = '<div class="result success"><h3>试玩通关！</h3><p>这次不计分。可以再玩一次，或者回小院休息一下。</p></div>';
     return;
   }
   const m = game.match, own = m.sides.find(s => s.own);
@@ -262,6 +303,14 @@ $('#close-game').addEventListener('click', () => { $('#game-dialog').close(); cl
 $('#game-dialog').addEventListener('cancel', () => { clearInterval(replayTimer); game = null; });
 $('#undo').addEventListener('click', () => act('Z'));
 $('#restart').addEventListener('click', () => act('X'));
+$('#completion-dismiss').addEventListener('click', () => { if (game) { game.completionDismissed = true; drawBoard(); } });
+$('#completion-primary').addEventListener('click', () => {
+  if (!game) return;
+  const view = completionView(game, replay(game.level.rows, game.actions), submitting);
+  if (view?.action === 'restart') void act('X');
+  else if (view?.action === 'retry') void submit(false);
+  else { game.completionDismissed = true; drawBoard(); }
+});
 $('#give-up').addEventListener('click', () => { if (confirm('认输将记录 −20 分，宠物仍会继续挑战。确定吗？')) submit(true); });
 document.querySelectorAll('[data-dir]').forEach(button => button.addEventListener('click', () => act(button.dataset.dir)));
 document.addEventListener('keydown', event => {

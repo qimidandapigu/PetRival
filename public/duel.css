@@ -1,4 +1,38 @@
 /* Two independent boards stay side by side, including on compact screens. */
+.board-shell{position:relative;isolation:isolate;margin-inline:auto}
+#game-dialog .board-shell{width:min(100%,max(220px,calc(100vh - 390px)))}
+#game-dialog .board-shell .board{width:100%}
+.board-shell.is-cleared .board{border-color:#a5b566;box-shadow:0 0 0 4px #e4cb78,0 7px 24px #75914435}
+.board-shell.is-cleared .crate.on-goal{background:#d6b759;border-color:#fff1b0;color:#fffbea;box-shadow:inset 0 0 0 2px #b99b44}
+.completion{position:absolute;inset:0;z-index:5;display:grid;place-items:center;padding:18px;background:#2538206b;backdrop-filter:blur(2px);overflow:hidden}
+.completion[hidden]{display:none}
+.completion-card{position:relative;width:100%;max-width:340px;padding:18px 16px 10px;text-align:center;background:#fffdf3;border:2px solid #e0c878;border-radius:14px;box-shadow:0 12px 40px #20332255;animation:completion-arrive .38s cubic-bezier(.2,.8,.2,1) both}
+.completion-seal{display:grid;place-items:center;width:48px;height:48px;margin:0 auto 10px;border-radius:50%;background:#e9efd7;color:#557844;font-size:32px;font-weight:700;box-shadow:0 0 0 5px #f4f6e8}
+.completion.confirmed .completion-seal{background:#365d3b;color:#fff6c4;box-shadow:0 0 0 5px #e5edce}
+.completion-eyebrow{margin:0 0 6px;color:#82733c;font-size:12px;font-weight:600;letter-spacing:1px}
+.completion-card h3{margin:0;color:#254a2d;font-size:clamp(22px,2.6vw,34px);line-height:1.35;font-weight:800;letter-spacing:-.5px}
+.completion-description{display:none}
+.completion-stats{display:grid;grid-template-columns:1fr 1fr;padding:12px 0;border-block:1px solid #e0e5cd}
+.completion-stats>div+div{border-left:1px solid #e0e5cd}
+.completion-stats span{display:block;color:#7a8569;font-size:12px;margin-bottom:3px}
+.completion-stats strong{display:block;color:#355b3b;font-size:26px;line-height:1.15;font-variant-numeric:tabular-nums}
+.completion-note{font-size:12px;color:#7f896e;line-height:1.5;margin:10px 0}
+.completion-card>.primary{width:100%;font-size:14px;padding:10px 8px;background:#355b3b;border-color:#355b3b;color:#fffdeb}
+.completion-dismiss{border:0;background:transparent;margin-top:5px;padding:6px;color:#718363;font-size:12px}
+.completion-confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.completion-confetti i{position:absolute;top:-12%;left:12%;width:7px;height:12px;background:#e8cc75;opacity:0;animation:completion-confetti 1.5s ease-out both}
+.completion-confetti i:nth-child(3n){background:#d8e6a6;width:9px;height:7px}
+.completion-confetti i:nth-child(3n+1){background:#fcf0c8}
+.completion-confetti i:nth-child(2n){animation-delay:.12s;transform:rotate(35deg)}
+.completion-confetti i:nth-child(3n+2){animation-delay:.25s}
+.completion-confetti i:nth-child(2){left:24%}.completion-confetti i:nth-child(3){left:36%}.completion-confetti i:nth-child(4){left:48%}.completion-confetti i:nth-child(5){left:60%}.completion-confetti i:nth-child(6){left:72%}.completion-confetti i:nth-child(7){left:84%}.completion-confetti i:nth-child(8){left:18%}.completion-confetti i:nth-child(9){left:32%}.completion-confetti i:nth-child(10){left:54%}.completion-confetti i:nth-child(11){left:76%}.completion-confetti i:nth-child(12){left:92%}
+@keyframes completion-arrive{from{opacity:0;transform:translateY(10px) scale(.9)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes completion-confetti{0%{opacity:0;top:-12%;rotate:0deg}15%{opacity:1}100%{opacity:0;top:110%;rotate:230deg}}
+@media(max-width:760px){.completion{padding:8px}.completion-card{padding:12px 8px 8px;border-radius:9px}.completion-seal{width:30px;height:30px;font-size:21px;margin-bottom:8px}.completion-card h3{font-size:22px}.completion-description{display:none}.completion-stats{padding:8px 0;margin-top:9px}.completion-stats strong{font-size:21px}.completion-eyebrow{font-size:12px;letter-spacing:0}.completion-note{margin:7px 0}.completion-card>.primary{padding:8px 4px;font-size:12px}.completion-dismiss{padding:4px}.completion-stats span{font-size:12px}}
+#game-dialog .board-shell:has(.completion:not([hidden])){min-height:460px}
+@media(max-width:760px){#game-dialog .board-shell:has(.completion:not([hidden])){min-height:400px}}
+@media(max-width:480px){#game-dialog .board-shell:has(.completion:not([hidden])){min-height:390px}.completion-card h3{font-size:20px}.completion-card{padding-inline:7px}.completion-seal{display:none}.completion-note{font-size:12px}.completion-eyebrow{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.completion-card,.completion-confetti i{animation:none}.completion-confetti{display:none}}
 #game-dialog{width:min(940px,97vw)}
 #game-dialog .dialog-top{padding:15px 24px}
 #game-dialog .board{width:min(100%,max(220px,calc(100vh - 390px)));margin-inline:auto}
