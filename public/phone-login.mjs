@@ -3,6 +3,9 @@ const host = document.querySelector('.top-right');
 if (host) {
   const button = document.createElement('button');
   button.type = 'button'; button.id = 'phone-login'; button.hidden = true; host.append(button);
+  const saveNotice = document.createElement('p');
+  saveNotice.id = 'guest-save-note'; saveNotice.hidden = true;
+  host.closest('header').after(saveNotice);
   const dialog = document.createElement('dialog');
   dialog.className = 'phone-dialog'; dialog.setAttribute('aria-labelledby', 'phone-title');
   dialog.innerHTML = `<form id="phone-form">
@@ -13,6 +16,7 @@ if (host) {
     <p id="phone-status" role="status" aria-live="polite"></p>
     <button type="submit" class="primary" id="phone-submit" disabled>登录并保存宠物</button>
     <button type="button" id="phone-existing" hidden>使用账号已有存档</button>
+    <button type="button" id="phone-skip">暂不登录，继续玩</button>
     <button type="button" id="phone-logout" hidden>退出手机号账号</button>
     <p class="fine">验证码由腾讯云发送。未注册的手机号验证后自动注册。登录或退出会刷新页面，请先完成当前游戏。</p>
   </form>`;
@@ -37,6 +41,7 @@ if (host) {
     phone.disabled = busy; code.disabled = busy; submit.disabled = busy || !verifyOtp;
     $('phone-existing').disabled = busy; $('phone-logout').disabled = busy;
     $('phone-close').disabled = busy;
+    $('phone-skip').disabled = busy;
   }
   function providerError(error) {
     const kind = String(error?.code || '') + ' ' + String(error?.message || '');
@@ -60,19 +65,22 @@ if (host) {
   globalThis.petRivalPhoneLogin = { update(state) {
     current = state;
     button.hidden = !state.auth?.phoneEnabled;
-    button.textContent = state.auth?.provider === 'cloudbase' ? state.auth.maskedPhone : '手机号登录';
+    button.textContent = state.auth?.provider === 'cloudbase' ? state.auth.maskedPhone : '手机号登录 · 保存进度';
+    saveNotice.hidden = state.storage !== 'D1' || state.signedIn === true;
+    saveNotice.textContent = '不登录也能直接玩。游客进度仅能通过当前浏览器找回，清理浏览器数据、身份过期或换设备后可能无法恢复。' + (state.auth?.phoneEnabled ? '登录绑定进度后，可在其他设备继续。' : '');
   } };
   button.addEventListener('click', () => {
     const signed = current?.auth?.provider === 'cloudbase';
     $('phone-title').textContent = signed ? `已登录 ${current.auth.maskedPhone}` : '手机号登录';
-    $('phone-save-note').textContent = signed ? '宠物、小院、对话和积分已保存在账号中。换设备登录同一手机号即可继续。' : '首次登录将绑定当前宠物。若手机号已有另一份存档，会先让你选择；不会覆盖或合并积分。';
+    $('phone-save-note').textContent = signed ? '宠物、小院、对话和积分已保存在账号中。换设备登录同一手机号即可继续。' : '不登录也能继续玩。登录后，当前宠物、小院、对话和积分会绑定到手机号，换设备也能找回。若账号已有另一份存档，会先让你选择，不会覆盖。';
     for (const element of [phone, code, send, submit, ...dialog.querySelectorAll('label')]) element.hidden = signed;
-    $('phone-logout').hidden = !signed; dialog.showModal(); controls();
+    $('phone-logout').hidden = !signed; $('phone-skip').hidden = signed; dialog.showModal(); controls();
     if (!signed) void auth().catch(() => { if (dialog.open && !busy) say('登录服务加载失败，请关闭窗口后重试。'); });
   });
   function clearProof() { verifyOtp = null; accessToken = null; code.value = ''; $('phone-existing').hidden = true; controls(); }
   function dismiss() { clearProof(); phone.value = ''; say(''); }
   $('phone-close').addEventListener('click', () => { if (!busy) { dismiss(); dialog.close(); } });
+  $('phone-skip').addEventListener('click', () => { if (!busy) { dismiss(); dialog.close(); } });
   dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); else dismiss(); });
   phone.addEventListener('input', () => { clearProof(); say(''); });
   send.addEventListener('click', async () => {

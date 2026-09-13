@@ -12,6 +12,32 @@ function fixture() {
   const db = database(), brain = makeBrain({ AI_MODE: 'algorithm' }); let now = Date.now();
   return { db, act: fn => transaction(db, store => fn(new CloudArena(store, brain, { now: () => now }))), later: ms => { now += ms; } };
 }
+
+test('anonymous visitor plays and reloads without login, then account recovers the same save without guest cookies', async () => {
+  const f = fixture(), env = { DB: f.db, AI_MODE: 'algorithm', CLOUDBASE_ENV_ID: envId };
+  const call = (path, cookie = '', body) => worker.fetch(new Request(`https://pet.example${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { cookie, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }), env, {});
+  const session = await call('/api/session', '', {});
+  assert.equal(session.status, 201);
+  assert.equal((await session.json()).signedIn, false);
+  const guestCookie = session.headers.get('set-cookie').split(';')[0];
+  const created = await call('/api/pets', guestCookie, { name: '先玩后登录', species: 'fox' });
+  assert.equal(created.status, 201);
+  const before = await (await call('/api/state', guestCookie)).json();
+  assert.equal(before.auth.provider, 'guest'); assert.equal(before.mine.name, '先玩后登录');
+  assert.equal((await (await call('/api/state', guestCookie)).json()).mine.id, before.mine.id);
+  const login = await f.act(a => signInAccount(request(guestCookie), a, verified));
+  assert.equal(login.migrated, true);
+  // Reconstruct the arena from the database and sign in on another device.
+  const otherDevice = await f.act(a => signInAccount(request(), a, verified));
+  const restored = await (await call('/api/state', otherDevice.setCookie.split(';')[0])).json();
+  assert.equal(restored.signedIn, true); assert.equal(restored.mine.id, before.mine.id);
+  assert.equal(restored.mine.score, before.mine.score);
+  assert.equal((await call('/api/state')).status, 401);
+});
 test('CloudBase verifies server-side against the configured environment and rejects malformed/disabled/non-phone identities', async () => {
   const config = { CLOUDBASE_ENV_ID: envId }, token = 'test-access-token-123456'; let called = 0;
   const fetcher = async (url, options) => {

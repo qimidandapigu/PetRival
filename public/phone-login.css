@@ -6,4 +6,6 @@
 .phone-dialog #phone-submit,.phone-dialog #phone-existing,.phone-dialog #phone-logout{width:100%;margin-top:12px}
 .phone-dialog #phone-status{color:#72552d;overflow-wrap:anywhere}.phone-dialog .section-heading{margin-bottom:12px}
 .phone-dialog [hidden]{display:none!important}#phone-login{font-size:14px;white-space:nowrap}
+#guest-save-note{margin:0;padding:10px max(20px,calc((100% - 1320px)/2));background:#f7efdb;color:#65552f;font-size:14px;line-height:1.7;border-bottom:1px solid #e5d8bb}
+#guest-save-note[hidden]{display:none!important}.phone-dialog #phone-skip{width:100%;margin-top:12px}
 @media(max-width:760px){.topbar{height:auto;min-height:78px;flex-wrap:wrap;padding-block:14px;gap:12px}.top-right{flex-wrap:wrap}.phone-dialog{padding:20px}.phone-dialog .input-row{flex-wrap:wrap}.phone-dialog .input-row input{flex-basis:50%}}
