@@ -42,3 +42,7 @@ Current release: **v14 succeeded** on 2026-09-14. Puzzle mastery runtime source 
 ## Spirit naming release
 
 Sites v15 succeeded on 2026-09-14. GitHub runtime source: `f2be068`; Sites source: `00c95c3e529a34157380e15941b2c640df4349ce`. Default labels, legacy pet names, displayed chat text and courtyard activity use 小精灵. Stored identity, species IDs and historical records are unchanged. 14 targeted regression tests, syntax checks and build passed; deployment `appgdep_6aa7bc55014c8191a91398d6f04db4c7` reported succeeded. No new browser or real-model gameplay test was performed for this text change.
+
+## Jump class release
+
+Sites v16 succeeded on 2026-09-14: `/jump.html` is linked from the game library. GitHub source `779ecee`; Sites source `6d7216a5b54d35bf1b85b909511013bfc7c537bd`. 63 runtime source files matched. Deployment `appgdep_6aa7f132c9788191aca25cab41d0903e` reported succeeded. 162 Node tests and 39 cloud tests passed. This game uses browser-local demonstration memory; no D1 migration, model calls, account rewards or cloud-learning synchronization. See [learning and verification boundaries](JUMP-CLASS-2026-09-14.md).

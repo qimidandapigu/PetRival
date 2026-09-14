@@ -32,3 +32,5 @@ Node 与 Sites 运行同一份前端物理、记录器和控制器；Node 增加
 - 发布状态由 `docs/SITES.md` 与 README 的交付记录说明，不把本地测试视作线上已发布。
 
 完整回归：本地 162 项、Cloud/Worker 39 项，共 201 项通过。新功能含 5 项针对性用例；同时修正旧名称转换在三个 VM 页面测试中的依赖注入，未改变旧游戏行为。开发基线为 `314d0cfab20a6bf6a3699cf998ab1ab91e01e53f`。
+
+已合入 GitHub main `779ecee`，现有 Sites v16 发布成功；试玩地址：https://petrival.clear-oasis-2741.chatgpt.site/jump.html 。发布后的文档提交不改变上述运行源码。
