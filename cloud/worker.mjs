@@ -151,7 +151,7 @@ export default {
         if (path === '/api/pets/chat' && request.method === 'POST') { limit(arena, owner, 'chat', 20); arena.tick(); const chat = arena.chat(owner, input); responseStatus = chat.request?.status === 'complete' ? 200 : 202; return chat; }
         if (path === '/api/pets/prepare' && request.method === 'POST') {
           limit(arena, owner, 'prepare', 2); const pet = arena.mine(owner); if (!pet) throw new ApiError(409, '请先领养宠物');
-          arena.prepare(pet, input.intent); responseStatus = 202; return arena.view(owner);
+          arena.prepare(pet, input.intent, input.puzzleSettings); responseStatus = 202; return arena.view(owner);
         }
         if (path === '/api/practice/start' && request.method === 'POST') { limit(arena, owner, 'practice', 2); responseStatus = 202; return arena.startPractice(owner, input); }
         const practice = path.match(/^\/api\/practice\/([\w-]+)$/);

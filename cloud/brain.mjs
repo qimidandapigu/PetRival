@@ -2,11 +2,11 @@ import { PetBrain } from '../server/provider.mjs';
 import { generate, solve, replay, renderRows, RULES } from '../shared/game.mjs';
 import { decideStep } from './step-play.mjs';
 export function makeBrain(env) {
-  const jobs = { run: async (task, data) => task === 'generate' ? generate(data.seed, data.intent) : solve(data.rows, Math.min(data.maxNodes || 50000, 50000)) };
+  const jobs = { run: async (task, data) => task === 'generate' ? generate(data.seed, data.intent, data.config) : solve(data.rows, Math.min(data.maxNodes || 50000, 50000)) };
   return new PetBrain(jobs, env);
 }
 export async function executeJob(brain, job, signal) {
-  if (job.kind === 'generate') return brain.generate(job.intent, job.seed);
+  if (job.kind === 'generate') return brain.generate(job.intent, job.seed, job.config);
   if (job.kind === 'chat') return brain.chat(job.context);
   const current = replay(job.rows, job.run.actions || '');
   if (job.run._skill?.gameId === 'sokoban') return decideStep(brain, job, signal);

@@ -126,7 +126,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (path === '/api/pets/prepare' && req.method === 'POST') {
         rate(`prepare:${owner}`, 2);
         const pet = arena.mine(owner); if (!pet) throw new ApiError(409, '请先领养宠物');
-        arena.prepare(pet, input.intent); return json(202, arena.view(owner));
+        arena.prepare(pet, input.intent, input.puzzleSettings); return json(202, arena.view(owner));
       }
       if (path === '/api/practice/agent' && req.method === 'POST') {
         rate(`practice:${owner}`, 2);

@@ -126,7 +126,7 @@ test('an opponent replay animates only the AI lane and keeps that pet identity i
   function node(selector) {
     if (!nodes.has(selector)) {
       const classes = new Set();
-      nodes.set(selector, { textContent: '', innerHTML: '', open: false, classes,
+      nodes.set(selector, { textContent: '', innerHTML: '', style: {}, open: false, classes,
         classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); } },
         addEventListener() {}, removeEventListener() {}, showModal() { this.open = true; }, querySelectorAll() { return []; } });
     }

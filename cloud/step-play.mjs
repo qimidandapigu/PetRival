@@ -18,7 +18,7 @@ export async function decideStep(brain, job, signal) {
   if (choices) {
     observation.availablePushes = choices.map(({ actions, ...choice }) => ({ ...choice, triedFromThisPosition: run._tried?.[`${position}/${choice.id}`] || 0, returnsToVisitedPosition: pushVisits.get(pushPositionKey(replay(renderRows(current.state), actions).state)) || 0 }));
     observation.recentDecisions = run._decisions || [];
-    observation.remainingGoals = current.state.goals.filter(p => !current.state.boxes.includes(p)).map(p => ({ x: p % 8, y: Math.floor(p / 8) }));
+    observation.remainingGoals = current.state.goals.filter(p => !current.state.boxes.includes(p)).map(p => ({ x: p % current.state.width, y: Math.floor(p / current.state.width) }));
     observation.canUndo = !!run._undo?.length;
     observation.undoMeaning = 'Undo the entire last push and its walking approach; time and memory are retained.';
     observation.assignmentGuidance = 'Boxes need distinct goals. Compatible goals account for the other box needing a different goal. Geometry warnings are not a solution.';

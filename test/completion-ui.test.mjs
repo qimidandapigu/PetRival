@@ -40,7 +40,7 @@ test('actual gameplay shows the completion card once, preserves dismissal on red
   let now = 1000;
   const nodes = new Map();
   const node = selector => {
-    if (!nodes.has(selector)) nodes.set(selector, { id: selector.slice(1), hidden: false, textContent: '', innerHTML: '', open: false, disabled: false,
+    if (!nodes.has(selector)) nodes.set(selector, { id: selector.slice(1), hidden: false, textContent: '', innerHTML: '', style: {}, open: false, disabled: false,
       events: {}, classList: { toggle() {} }, addEventListener(name, fn) { this.events[name] = fn; }, querySelectorAll() { return []; }, showModal() { this.open = true; } });
     return nodes.get(selector);
   };

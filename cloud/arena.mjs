@@ -1,3 +1,4 @@
+import { puzzleSettings } from '../shared/progression.mjs';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { Arena, ApiError } from '../server/arena.mjs';
 import { replay, RULES, runScore } from '../shared/game.mjs';
@@ -47,11 +48,13 @@ export class CloudArena extends Arena {
     if (this.s.jobs[id] && ['pending', 'running'].includes(this.s.jobs[id].status)) return;
     this.s.jobs[id] = { id, kind, target, ...extra, status: 'pending', createdAt: this.now() };
   }
-  prepare(pet, intent) {
+  prepare(pet, intent, requested) {
     if (pet.preparing) return;
+    let config; try { config = puzzleSettings(pet, requested); } catch (e) { throw new ApiError(400, e.message); }
+    pet.puzzleSettings = config;
     if (intent !== undefined) pet.intent = typeof intent === 'string' ? intent.trim().slice(0, 240) || pet.intent : pet.intent;
     pet.preparing = true; pet.prepareError = null;
-    this.enqueue('generate', pet.id, { intent: pet.intent, seed: randomBytes(4).readUInt32LE() });
+    this.enqueue('generate', pet.id, { intent: pet.intent, seed: randomBytes(4).readUInt32LE(), config });
   }
   launchAgents(match) {
     if (match.status !== 'active') return;
@@ -111,7 +114,7 @@ export class CloudArena extends Arena {
       if (['push', 'step'].includes(run.playStyle)) {
         const changed = stateKey(before.state) !== stateKey(result.state), action = prefix.at(-1);
         run._feedback = { action, changed, goalsFilled: result.state.boxes.filter(b => result.state.goals.includes(b)).length };
-        run._recent = [...(run._recent || []), { action, player: { x: result.state.player % 8, y: Math.floor(result.state.player / 8) }, changed }].slice(-12);
+        run._recent = [...(run._recent || []), { action, player: { x: result.state.player % result.state.width, y: Math.floor(result.state.player / result.state.width) }, changed }].slice(-12);
         run._visits ||= {}; const key = stateKey(result.state); run._visits[key] = (run._visits[key] || 0) + 1;
       }
     }

@@ -40,3 +40,20 @@ export function progressionView(pet) {
     })),
   };
 }
+
+export function puzzleMasteryView(pet) {
+  const clears = ensureGrowth(pet).clearedLevels.length;
+  const tier = clears >= 10 ? 3 : clears >= 3 ? 2 : 1;
+  return { level: tier, maxSize: tier + 7, maxBoxes: tier + 1, clears,
+    nextAt: tier === 1 ? 3 : tier === 2 ? 10 : null,
+    selected: pet.puzzleSettings || { size: 8, boxes: 2, difficulty: 'normal' } };
+}
+export function puzzleSettings(pet, requested) {
+  const ability = puzzleMasteryView(pet), previous = pet.puzzleSettings || { size: 8, boxes: 2, difficulty: 'normal' };
+  const settings = requested === undefined ? previous : { ...previous, ...requested };
+  if (!settings || !Number.isInteger(settings.size) || settings.size < 8 || settings.size > ability.maxSize ||
+      !Number.isInteger(settings.boxes) || settings.boxes < 2 || settings.boxes > ability.maxBoxes || !['normal','hard'].includes(settings.difficulty)) {
+    throw new Error('尚未解锁这个出题规格，或难度设置不合法');
+  }
+  return { size: settings.size, boxes: settings.boxes, difficulty: settings.difficulty };
+}

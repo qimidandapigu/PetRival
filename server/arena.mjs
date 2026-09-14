@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { generate, parse, replay, RULES, runScore, compareTeams } from '../shared/game.mjs';
 import { PET_SPECIES, defaultAppearance, parsePetFile } from '../shared/pet.mjs';
-import { GAMES, ensureGrowth, progressionView, recordVerifiedClear } from '../shared/progression.mjs';
+import { GAMES, puzzleMasteryView, puzzleSettings, ensureGrowth, progressionView, recordVerifiedClear } from '../shared/progression.mjs';
 import { LIFE_ACTIONS, ensureLife, advanceLife, requestLifeAction, lifeView } from '../shared/life.mjs';
 import { checkSkill, skillView, skillDecision, boxingSkillDecision } from './competition-skill.mjs';
 import { newBout, fighterObservation } from '../shared/boxing.mjs';
@@ -69,7 +69,7 @@ export class Arena {
   attachLevel(pet, result) {
     parse(result.rows);
     need(result.proof && replay(result.rows, result.proof).won, '关卡没有有效通关证明');
-    const level = { id: randomUUID(), petId: pet.id, rows: [...result.rows], proof: result.proof, hash: hash(result.rows.join('\n')), method: result.method, model: result.model || null, createdAt: this.now() };
+    const level = { id: randomUUID(), petId: pet.id, rows: [...result.rows], proof: result.proof, hash: hash(result.rows.join('\n')), method: result.method, model: result.model || null, generation: result.config || null, createdAt: this.now() };
     this.s.levels[level.id] = level; pet.readyId = level.id;
     return level;
   }
@@ -80,13 +80,15 @@ export class Arena {
     this.attachLevel(pet, generate(randomBytes(4).readUInt32LE(), pet.intent));
     this.store.save(); this.prepare(pet); return pet;
   }
-  prepare(pet, intent) {
+  prepare(pet, intent, requested) {
     if (this.generating.has(pet.id) || this.closed) return;
+    let config; try { config = puzzleSettings(pet, requested); } catch (e) { throw new ApiError(400, e.message); }
+    pet.puzzleSettings = config;
     if (intent !== undefined) pet.intent = clean(intent, 240) || pet.intent;
     this.generating.add(pet.id); pet.preparing = true; pet.prepareError = null; this.store.save();
     this.task(async () => {
       try {
-        const result = await this.brain.generate(pet.intent, randomBytes(4).readUInt32LE());
+        const result = await this.brain.generate(pet.intent, randomBytes(4).readUInt32LE(), config);
         if (!this.closed) this.attachLevel(pet, result);
       } catch { pet.prepareError = '备题未通过验证或服务失败，保留原关卡；稍后可重试'; }
       finally { this.generating.delete(pet.id); pet.preparing = false; this.store.save(); }
@@ -94,7 +96,7 @@ export class Arena {
   }
   publicPet(p) {
     return { id: p.id, name: p.name, species: p.species, appearance: p.appearance || defaultAppearance(p.species), bot: p.bot, score: p.score, rankMs: p.rankMs, played: p.played, wins: p.wins, losses: p.losses, draws: p.draws, ready: !!p.readyId, preparing: p.preparing, defense: p.defense, method: this.s.levels[p.readyId]?.method,
-      selectedGame: p.selectedGame, progression: progressionView(p), competition: skillView(p) };
+      puzzleMastery: puzzleMasteryView(p), selectedGame: p.selectedGame, progression: progressionView(p), competition: skillView(p) };
   }
   checkCompetitionSkill(owner, input) {
     const pet = this.mine(owner); need(pet, '请先领养宠物', 409);

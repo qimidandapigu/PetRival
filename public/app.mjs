@@ -45,6 +45,7 @@ async function refresh() {
     }
   } catch (e) { notify(e.message, true); } finally { refreshing = false; }
 }
+let puzzleDraft = null;
 function render() {
   const isBoxing = state.mine?.selectedGame === 'boxing';
   if ($('#ranking-title')) $('#ranking-title').textContent = isBoxing ? '打拳排行榜' : '推箱子排行榜';
@@ -60,7 +61,8 @@ function render() {
     $('#my-pet').innerHTML = mine ? `
       <div class="section-heading"><span class="eyebrow">YOUR COMPANION</span><span class="badge ready">● 守擂关已就绪</span></div>
       <div class="pet-profile">${avatar(mine)}<div><h2>${escape(mine.name)} <span class="profile-level">Lv.${mine.progression?.level || 1}</span></h2><p>${mine.preparing ? '正在后台准备下一关，当前关卡可照常挑战。' : '已经备好一道题，随时可以出战。'}</p><span class="badge">${method(mine.level.method)}</span> <span class="badge">${mine.defense ? '已开启异步守擂' : '暂未开启守擂'}</span></div><div class="pet-score"><strong>${mine.score}</strong><span>挑战积分</span></div></div>
-      <form id="prepare"><label for="intent">下一关，想怎么出？</label><div class="input-row"><input id="intent" name="intent" maxlength="240" value="${escape(mine.intent)}" placeholder="例如：两个箱子，有点绕"><button class="primary" ${mine.preparing ? 'disabled' : ''}>${mine.preparing ? '备题中…' : '后台备新题 ↗'}</button></div></form>
+      <section class="puzzle-mastery"><strong>出题能力 Lv.${mine.puzzleMastery?.level || 1}</strong><p>${mine.puzzleMastery?.nextAt ? `宠物已通关 ${mine.puzzleMastery.clears} 张不同关卡，累计 ${mine.puzzleMastery.nextAt} 张后升级。` : '已解锁全部出题规格。'} 当前守擂关 ${mine.level.rows.length}×${mine.level.rows.length} · ${parse(mine.level.rows).boxes.length} 箱</p></section>
+      <form id="prepare"><div class="puzzle-options"><label>地图大小<select name="size">${[8,9,10].map(n => `<option value="${n}" ${n > (mine.puzzleMastery?.maxSize || 8) ? 'disabled' : ''} ${n === (puzzleDraft?.size || mine.puzzleMastery?.selected.size || 8) ? 'selected' : ''}>${n}×${n}${n > (mine.puzzleMastery?.maxSize || 8) ? ' · 未解锁' : ''}</option>`).join('')}</select></label><label>箱子数量<select name="boxes">${[2,3,4].map(n => `<option value="${n}" ${n > (mine.puzzleMastery?.maxBoxes || 2) ? 'disabled' : ''} ${n === (puzzleDraft?.boxes || mine.puzzleMastery?.selected.boxes || 2) ? 'selected' : ''}>${n} 个${n > (mine.puzzleMastery?.maxBoxes || 2) ? ' · 未解锁' : ''}</option>`).join('')}</select></label><label>难度<select name="difficulty"><option value="normal">标准</option><option value="hard" ${(puzzleDraft?.difficulty || mine.puzzleMastery?.selected.difficulty) === 'hard' ? 'selected' : ''}>困难</option></select></label></div><label for="intent">下一关，想怎么出？</label><div class="input-row"><input id="intent" name="intent" maxlength="240" value="${escape(mine.intent)}" placeholder="例如：先腾出通道，再让箱子依次归位"><button class="primary" ${mine.preparing ? 'disabled' : ''}>${mine.preparing ? '备题中…' : '后台备新题 ↗'}</button></div></form>
       ${mine.prepareError ? `<p class="error-text">${escape(mine.prepareError)}</p>` : ''}<div class="profile-actions"><button id="practice">试玩我的守擂关</button><button id="practice-ai">和宠物一起试跑</button><button id="edit-pet">外观工作室</button><span class="fine">试玩不计分 · 不影响正式挑战</span></div>` : `
       <div class="section-heading"><div><span class="eyebrow">YOUR FIRST COMPANION</span><h2>领养你的第一位搭档</h2></div><span class="badge">访客试玩</span></div>
       <form id="adopt"><div class="species-picker"><label><input type="radio" name="species" value="xiaotangyuan" checked>${avatar('xiaotangyuan')}<span>小汤圆</span></label><label><input type="radio" name="species" value="sprout">${avatar('sprout')}<span>芽芽灵</span></label><label><input type="radio" name="species" value="fox">${avatar('fox')}<span>火花狐</span></label><label><input type="radio" name="species" value="ghost">${avatar('ghost')}<span>云朵兽</span></label></div><label for="pet-name">给搭档起个名字</label><div class="input-row"><input id="pet-name" name="name" maxlength="16" required value="小汤圆" placeholder="例如：会推箱子的栗子"><button class="primary">一起出发 →</button></div><label class="checkbox"><input name="defense" type="checkbox" checked>允许其他宠物直接发起异步挑战（未开始的对局不会判负）</label><p class="fine">游客身份保存在当前浏览器。支持手机号登录时，可在页面顶部登录并绑定宠物，换设备继续。</p></form>`;
@@ -108,9 +110,10 @@ function bindHome() {
     try { await api('/api/pets', { name: f.get('name'), species: f.get('species'), defense: f.get('defense') === 'on' }); document.activeElement?.blur(); await refresh(); notify('搭档住进小院了！陪它散散步，或者聊聊天吧。'); document.querySelector('#pet-world')?.scrollIntoView({ behavior: 'smooth' }); }
     catch (err) { notify(err.message, true); button.disabled = false; }
   });
+  bind('#prepare', 'change', e => { const f = new FormData(e.currentTarget); puzzleDraft = { size: Number(f.get('size')), boxes: Number(f.get('boxes')), difficulty: f.get('difficulty') }; });
   bind('#prepare', 'submit', async e => {
     e.preventDefault(); const value = new FormData(e.target).get('intent');
-    try { await api('/api/pets/prepare', { intent: value }); document.activeElement?.blur(); await refresh(); notify('宠物在后台备题，你可以继续挑战。'); } catch (err) { notify(err.message, true); }
+    try { await api('/api/pets/prepare', { intent: value, puzzleSettings: { size: Number(new FormData(e.target).get('size')), boxes: Number(new FormData(e.target).get('boxes')), difficulty: new FormData(e.target).get('difficulty') } }); document.activeElement?.blur(); await refresh(); notify('宠物在后台备题，你可以继续挑战。'); } catch (err) { notify(err.message, true); }
   });
   bind('#practice', 'click', () => openPractice(state.mine.level));
   bind('#edit-pet', 'click', editPet);
@@ -170,7 +173,7 @@ function openReplay(level, actions, title, note, pet = state.mine, run = {}) {
 function boardMarkup(rows, actions, pet) {
   return renderRows(replay(rows, actions).state).flatMap(row => [...row]).map((cell, index) => {
     const goal = ['.', '*', '+'].includes(cell), box = ['$', '*'].includes(cell), player = ['@', '+'].includes(cell);
-    return `<div class="tile ${cell === '#' ? 'wall' : 'floor'} ${(Math.floor(index / 8) + index % 8) % 2 ? 'alternate' : ''}" aria-label="${cell === '#' ? '墙' : box ? '箱子' : player ? '玩家' : goal ? '目标' : '地面'}">${goal ? '<span class="goal">✿</span>' : ''}${box ? `<span class="crate ${goal ? 'on-goal' : ''}">×</span>` : ''}${player ? avatar(pet, 'board-pet') : ''}</div>`;
+    return `<div class="tile ${cell === '#' ? 'wall' : 'floor'} ${(Math.floor(index / rows.length) + index % rows.length) % 2 ? 'alternate' : ''}" aria-label="${cell === '#' ? '墙' : box ? '箱子' : player ? '玩家' : goal ? '目标' : '地面'}">${goal ? '<span class="goal">✿</span>' : ''}${box ? `<span class="crate ${goal ? 'on-goal' : ''}">×</span>` : ''}${player ? avatar(pet, 'board-pet') : ''}</div>`;
   }).join('');
 }
 function drawAgent() {
@@ -179,6 +182,7 @@ function drawAgent() {
   const run = game.kind === 'replay' ? { actions: game.replayActions, steps: replay(game.level.rows, game.replayActions).steps, status: game.replayActions.length < game.replayLength ? 'running' : replay(game.level.rows, game.replayActions).won ? 'cleared' : 'failed', note: game.note } : own?.agent || game.practiceAgent;
   const pet = own?.pet || game.replayPet || state.mine;
   $('#agent-name').textContent = `${pet.name} · AI`;
+  $('#agent-board').style.gridTemplateColumns = `repeat(${game.level.rows.length}, minmax(0, 1fr))`;
   $('#agent-board').innerHTML = boardMarkup(game.level.rows, run?.actions || '', pet);
   $('#agent-steps').textContent = `${run?.steps || 0} 步`;
   drawAgentFeedback(run);
@@ -218,21 +222,21 @@ async function pollMatch() {
 function completionView(current, result, isSubmitting) {
   if (!current || current.kind === 'replay') return null;
   if (current.kind === 'practice') return result.won ? {
-    confirmed: true, label: '全部归位 · 2 / 2', title: '漂亮，通关了！', description: '两个箱子，都到家啦。',
+    confirmed: true, label: '全部归位', title: '漂亮，通关了！', description: '所有箱子，都到家啦。',
     elapsedMs: Math.max(0, (current.completedAt || Date.now()) - (current.startedAt || Date.now())), steps: result.steps,
     note: '试玩完成 · 不计排名', button: '再玩一次', action: 'restart',
   } : null;
   const match = current.match, human = match.sides.find(side => side.own).human;
   if (match.status === 'void' || human.status === 'failed') return null;
   if (human.status === 'cleared') return {
-    confirmed: true, label: '全部归位 · 2 / 2', title: '你已通关！', description: '这一关，拿下了。',
+    confirmed: true, label: '全部归位', title: '你已通关！', description: '这一关，拿下了。',
     elapsedMs: human.elapsedMs, steps: result.steps,
     note: match.status === 'done' ? '比赛已结束，完整结果见下方' : '你的成绩已确认，其他参与者继续挑战',
     button: '继续看对局', action: 'dismiss',
   };
   if (!result.won || human.status !== 'running' || match.status !== 'active') return null;
   return {
-    confirmed: false, label: '全部归位 · 2 / 2', title: '箱子都到家了！', description: '最后一步，推得漂亮。',
+    confirmed: false, label: '全部归位', title: '箱子都到家了！', description: '最后一步，推得漂亮。',
     elapsedMs: null, steps: result.steps,
     note: current.finishError ? '成绩暂未确认，操作已保留' : '正在确认你的通关成绩…',
     button: current.finishError && !isSubmitting ? '重新确认成绩' : '继续看对局', action: current.finishError && !isSubmitting ? 'retry' : 'dismiss',
@@ -256,13 +260,14 @@ function drawBoard() {
   if (!game) return;
   $('#game-dialog').classList.toggle('replay-mode', game.kind === 'replay');
   const result = replay(game.level.rows, game.actions);
+  $('#board').style.gridTemplateColumns = `repeat(${game.level.rows.length}, minmax(0, 1fr))`;
   $('#board').innerHTML = boardMarkup(game.level.rows, game.actions, state.mine);
   $('#steps').textContent = `${result.steps} 步`;
   const locked = game.kind === 'replay' || (game.kind === 'challenge' && (game.match.status !== 'active' || game.match.sides.find(s => s.own).human.status !== 'running'));
   $('#challenge-recovery').hidden = !(game.kind === 'challenge' && game.match.status === 'void');
   for (const button of document.querySelectorAll('.controls button, .dpad button')) button.disabled = locked || submitting || (result.won && !(game.kind === 'practice' && button.id === 'restart'));
   $('#give-up').hidden = game.kind !== 'challenge';
-  $('#game-status').textContent = result.won ? '两个箱子都到家了！' : game.kind === 'replay' ? '正在播放宠物的路线' : locked ? '本次挑战已结束' : '把箱子推上花朵';
+  $('#game-status').textContent = result.won ? '所有箱子都到家了！' : game.kind === 'replay' ? '正在播放宠物的路线' : locked ? '本次挑战已结束' : '把箱子推上花朵';
   drawCompletion(result);
 }
 async function act(action) {

@@ -32,3 +32,7 @@ As verified on 2026-09-14, Sites v11 is published successfully at https://petriv
 Boxing queues, input and settlement persist in D1; model work runs outside transactions. The competition skill is fixed when a match starts. Sokoban defaults to feedback; candidate preview remains opt-in. See [the integration evidence](claims/2026-09-14-multi-game-integration.md).
 
 Daily check-in AI credit, ads and payment are not part of v11. Refer to [CONTRIBUTING.md](../CONTRIBUTING.md) before new work; the publishing mirror is not a development branch.
+
+## Puzzle mastery upgrade
+
+Preparation jobs now persist a server-validated size/box/difficulty snapshot in existing JSON data. Unlocks derive from verified unique pet clears; no migration is required. Both Worker and Node support 8–10 square boards and 2–4 boxes, including step observations and previews. Failed hard-board verification keeps the previous ready level. See [implementation and validation](PUZZLE-MASTERY-2026-09-14.md).
