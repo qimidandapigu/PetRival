@@ -75,7 +75,7 @@
 <div class="rings"><section class="ring-card"><div class="ring-label"><b><i class="blue"></i>01 · 宠物对战</b><span>AI × AI / 正常数值</span></div><div class="hud" id="pet-hud"></div><canvas id="pet-ring" width="800" height="420" aria-label="左边宠物自动对战擂台"></canvas><p class="ring-status tactical-feedback" id="pet-feedback" aria-live="polite"></p><p class="ring-status" id="pet-status" role="status"></p></section>
 <section class="ring-card"><div class="ring-label"><b><i class="orange"></i>02 · 你来应战</b><span>对手 150 HP / ATK ×5</span></div><div class="hud" id="human-hud"></div><canvas id="human-ring" width="800" height="420" aria-label="右边真人挑战五倍加强对手擂台"></canvas><p class="ring-status tactical-feedback" id="human-feedback" aria-live="polite"></p><p class="ring-status" id="human-status" role="status"></p></section></div>
 <div class="under-ring"><div class="commands" aria-label="真人拳击操作"><button data-action="retreat"><kbd>A / ←</kbd>后退</button><button data-action="advance"><kbd>D / →</kbd>前进</button><button data-action="jab"><kbd>J</kbd>轻拳</button><button data-action="heavy"><kbd>K</kbd>重拳</button><button data-action="guard"><kbd>L</kbd>防御</button><button data-action="throw"><kbd>I</kbd>抱摔 / 破防</button></div><button id="surrender" class="danger">真人认输</button><button id="rematch" hidden>再来一局 ↗</button><button id="join" hidden>开始我的真人场</button></div>
-<p class="fine">按住连续行动，松手站立；只有按住 L 或防御按钮才防御。J 轻拳打断慢招，L 防住重拳后用 J 反击，I 抱摔克制防御；后退可骗招打空。普通拳被防住不掉血，重拳收招时挨打会多受伤害。时间到比较剩余血量百分比。</p><div id="result" class="result" role="status"></div></section>
+<p class="fine" id="boxing-rules">按住连续行动，松手站立；只有按住 L 或防御按钮才防御。J 轻拳打断慢招，L 防住重拳后用 J 反击，I 抱摔克制防御；后退可骗招打空。普通拳被防住不掉血，重拳收招时挨打会多受伤害。时间到比较剩余血量百分比。</p><div id="result" class="result" role="status"></div></section>
 </dialog>
 
 </body>

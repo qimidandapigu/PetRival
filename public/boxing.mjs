@@ -31,6 +31,7 @@ function render(){
     return note+(skills?' · '+skills:'');
   };
   const feedback=(bout,labels)=>(bout.fighters||[]).map((f,i)=>f.cue?.until>bout.frame?`${labels[i]}：${f.cue.message}`:'').filter(Boolean).join(' · ');
+  $('#boxing-rules').textContent=match.human.rulesVersion===2?'按住连续行动，松手站立；只有按住 L 或防御按钮才防御。J 轻拳打断慢招，L 防住重拳后用 J 反击，I 抱摔克制防御；后退可骗招打空。普通拳被防住不掉血，重拳收招时挨打会多受伤害。时间到比较剩余血量百分比。':'这是更新前开始的对局，沿用旧规则：J 轻拳、K 重拳、L 防御，防御仍受少量伤害，本局不支持抱摔。松手站立；时间到比较剩余血量百分比。';
   $('#pet-feedback').textContent=feedback(match.petBout,names);
   $('#human-feedback').textContent=feedback(match.human,['你',names[foe]]);
   $('#pet-status').textContent=match.petBout.status==='done'?winnerText(match.petBout,names):aiNote(match.petBout);
