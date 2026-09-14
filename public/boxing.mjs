@@ -1,3 +1,4 @@
+import { petDisplayName } from '/shared/pet.mjs';
 import { petMarkup, defaultAppearance } from '/shared/pet.mjs';
 const root = document.querySelector('#boxing-dialog');
 const $ = s => root.querySelector(s), escape = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -20,7 +21,7 @@ function time(bout){if(!bout.fighters)return '--';return String(Math.ceil(Math.m
 function hp(f,name,enemy=false){return `<div class="${enemy?'enemy':''}"><div class="hp-name"><b>${escape(name)}</b><span>${f.hp} / ${f.maxHp}</span></div><progress class="hp-track" max="${f.maxHp}" value="${f.hp}" aria-label="${escape(name)}血量"></progress></div>`;}
 const winnerText=(bout,names)=>bout.winner===null?'平局':`${names[bout.winner]} 获胜`;
 function render(){
-  if(!match)return; const names=match.pets.map(p=>p.name), own=match.side, foe=1-own;
+  if(!match)return; const names=match.pets.map(p=>petDisplayName(p.name)), own=match.side, foe=1-own;
   $('#match-title').textContent=`${names[own]}  vs  ${names[foe]}`;$('#match-kind').textContent=match.training?'TRAINING · 训练拳台，不计排名':'RANKED · 宠物积分挑战';
   $('#pet-hud').innerHTML=hp(match.petBout.fighters[0],names[0])+`<div class="clock">${time(match.petBout)}<small>SECONDS</small></div>`+hp(match.petBout.fighters[1],names[1],true);
   $('#human-hud').innerHTML=match.human.fighters?hp(match.human.fighters[0],'你 · '+names[own])+`<div class="clock">${time(match.human)}<small>SECONDS</small></div>`+hp(match.human.fighters[1],names[foe]+' ×5',true):'<p>你的真人场尚未开始</p>';
@@ -75,7 +76,7 @@ function drawFighter(ctx,f,pet,i,now,key){
   if(f.cue?.until > (key.startsWith('0:') ? match.petBout.frame : match.human.frame)){text(ctx,f.cue.message,0,-105,14,'#ffe39a');}
   if(f.attack && f.attack.age >= ({jab:3,heavy:8,throw:7}[f.attack.kind]||99)){text(ctx,'收招中',0,-82,13,'#ffb078');}
   if(f.flash>0){text(ctx,f.action==='guard'?'BLOCK':'HIT!',0,-90,16,f.action==='guard'?'#89edec':'#ffc38b');}
-  ctx.restore();text(ctx,pet.name,x,377,16,i?'#ffc194':'#9ce8da');
+  ctx.restore();text(ctx,petDisplayName(pet.name),x,377,16,i?'#ffc194':'#9ce8da');
 }
 function drawRing(canvas,bout,pets,variant,now){
   const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=false;const w=800;
@@ -88,7 +89,7 @@ function drawRing(canvas,bout,pets,variant,now){
   for(const x of [25,755]){rect(ctx,'#839398',x,150,20,182);rect(ctx,'#455467',x+4,161,12,165);}
   if(!bout.fighters){text(ctx,'READY WHEN YOU ARE',400,250,27);return;}
   bout.fighters.forEach((f,i)=>drawFighter(ctx,f,pets[i],i,now,`${variant}:${i}`));
-  if(bout.status==='done'){ctx.fillStyle='#0c1727b8';ctx.fillRect(130,125,540,95);text(ctx,bout.winner===null?'DRAW':bout.reason==='ko'?'K.O.':'TIME / RESULT',400,165,37,'#ffcf8d');text(ctx,winnerText(bout,pets.map(p=>p.name)),400,196,18);}
+  if(bout.status==='done'){ctx.fillStyle='#0c1727b8';ctx.fillRect(130,125,540,95);text(ctx,bout.winner===null?'DRAW':bout.reason==='ko'?'K.O.':'TIME / RESULT',400,165,37,'#ffcf8d');text(ctx,winnerText(bout,pets.map(p=>petDisplayName(p.name))),400,196,18);}
   else if(match&&match.now<bout.startedAt){text(ctx,'READY '+Math.ceil((bout.startedAt-match.now)/1000),400,220,38,'#ffe0a6');}
 }
 function animate(now){if(match){drawRing($('#pet-ring'),match.petBout,match.pets,0,now);drawRing($('#human-ring'),match.human,[match.pets[match.side],match.pets[1-match.side]],1,now);}requestAnimationFrame(animate);}

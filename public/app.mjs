@@ -1,3 +1,4 @@
+import { petDisplayName } from '/shared/pet.mjs';
 import { parse, replay, renderRows, RULES } from '/shared/game.mjs'; import { petMarkup } from '/shared/pet.mjs'; import { openPetEditor } from '/pet-editor.mjs'; import { createCompanionHub } from '/companion.mjs';
 import { openBoxing } from '/boxing.mjs';
 import { openSkillEditor } from '/skill-editor.mjs';
@@ -60,23 +61,23 @@ function render() {
   if (!document.activeElement?.closest('#my-pet') && (mine || !$('#adopt'))) {
     $('#my-pet').innerHTML = mine ? `
       <div class="section-heading"><span class="eyebrow">YOUR COMPANION</span><span class="badge ready">● 守擂关已就绪</span></div>
-      <div class="pet-profile">${avatar(mine)}<div><h2>${escape(mine.name)} <span class="profile-level">Lv.${mine.progression?.level || 1}</span></h2><p>${mine.preparing ? '正在后台准备下一关，当前关卡可照常挑战。' : '已经备好一道题，随时可以出战。'}</p><span class="badge">${method(mine.level.method)}</span> <span class="badge">${mine.defense ? '已开启异步守擂' : '暂未开启守擂'}</span></div><div class="pet-score"><strong>${mine.score}</strong><span>挑战积分</span></div></div>
+      <div class="pet-profile">${avatar(mine)}<div><h2>${escape(petDisplayName(mine.name))} <span class="profile-level">Lv.${mine.progression?.level || 1}</span></h2><p>${mine.preparing ? '正在后台准备下一关，当前关卡可照常挑战。' : '已经备好一道题，随时可以出战。'}</p><span class="badge">${method(mine.level.method)}</span> <span class="badge">${mine.defense ? '已开启异步守擂' : '暂未开启守擂'}</span></div><div class="pet-score"><strong>${mine.score}</strong><span>挑战积分</span></div></div>
       <section class="puzzle-mastery"><strong>出题能力 Lv.${mine.puzzleMastery?.level || 1}</strong><p>${mine.puzzleMastery?.nextAt ? `宠物已通关 ${mine.puzzleMastery.clears} 张不同关卡，累计 ${mine.puzzleMastery.nextAt} 张后升级。` : '已解锁全部出题规格。'} 当前守擂关 ${mine.level.rows.length}×${mine.level.rows.length} · ${parse(mine.level.rows).boxes.length} 箱</p></section>
       <form id="prepare"><div class="puzzle-options"><label>地图大小<select name="size">${[8,9,10].map(n => `<option value="${n}" ${n > (mine.puzzleMastery?.maxSize || 8) ? 'disabled' : ''} ${n === (puzzleDraft?.size || mine.puzzleMastery?.selected.size || 8) ? 'selected' : ''}>${n}×${n}${n > (mine.puzzleMastery?.maxSize || 8) ? ' · 未解锁' : ''}</option>`).join('')}</select></label><label>箱子数量<select name="boxes">${[2,3,4].map(n => `<option value="${n}" ${n > (mine.puzzleMastery?.maxBoxes || 2) ? 'disabled' : ''} ${n === (puzzleDraft?.boxes || mine.puzzleMastery?.selected.boxes || 2) ? 'selected' : ''}>${n} 个${n > (mine.puzzleMastery?.maxBoxes || 2) ? ' · 未解锁' : ''}</option>`).join('')}</select></label><label>难度<select name="difficulty"><option value="normal">标准</option><option value="hard" ${(puzzleDraft?.difficulty || mine.puzzleMastery?.selected.difficulty) === 'hard' ? 'selected' : ''}>困难</option></select></label></div><label for="intent">下一关，想怎么出？</label><div class="input-row"><input id="intent" name="intent" maxlength="240" value="${escape(mine.intent)}" placeholder="例如：先腾出通道，再让箱子依次归位"><button class="primary" ${mine.preparing ? 'disabled' : ''}>${mine.preparing ? '备题中…' : '后台备新题 ↗'}</button></div></form>
       ${mine.prepareError ? `<p class="error-text">${escape(mine.prepareError)}</p>` : ''}<div class="profile-actions"><button id="practice">试玩我的守擂关</button><button id="practice-ai">和宠物一起试跑</button><button id="edit-pet">外观工作室</button><span class="fine">试玩不计分 · 不影响正式挑战</span></div>` : `
       <div class="section-heading"><div><span class="eyebrow">YOUR FIRST COMPANION</span><h2>领养你的第一位搭档</h2></div><span class="badge">访客试玩</span></div>
-      <form id="adopt"><div class="species-picker"><label><input type="radio" name="species" value="xiaotangyuan" checked>${avatar('xiaotangyuan')}<span>小汤圆</span></label><label><input type="radio" name="species" value="sprout">${avatar('sprout')}<span>芽芽灵</span></label><label><input type="radio" name="species" value="fox">${avatar('fox')}<span>火花狐</span></label><label><input type="radio" name="species" value="ghost">${avatar('ghost')}<span>云朵兽</span></label></div><label for="pet-name">给搭档起个名字</label><div class="input-row"><input id="pet-name" name="name" maxlength="16" required value="小汤圆" placeholder="例如：会推箱子的栗子"><button class="primary">一起出发 →</button></div><label class="checkbox"><input name="defense" type="checkbox" checked>允许其他宠物直接发起异步挑战（未开始的对局不会判负）</label><p class="fine">游客身份保存在当前浏览器。支持手机号登录时，可在页面顶部登录并绑定宠物，换设备继续。</p></form>`;
+      <form id="adopt"><div class="species-picker"><label><input type="radio" name="species" value="xiaotangyuan" checked>${avatar('xiaotangyuan')}<span>小精灵</span></label><label><input type="radio" name="species" value="sprout">${avatar('sprout')}<span>芽芽灵</span></label><label><input type="radio" name="species" value="fox">${avatar('fox')}<span>火花狐</span></label><label><input type="radio" name="species" value="ghost">${avatar('ghost')}<span>云朵兽</span></label></div><label for="pet-name">给搭档起个名字</label><div class="input-row"><input id="pet-name" name="name" maxlength="16" required value="小精灵" placeholder="例如：会推箱子的栗子"><button class="primary">一起出发 →</button></div><label class="checkbox"><input name="defense" type="checkbox" checked>允许其他宠物直接发起异步挑战（未开始的对局不会判负）</label><p class="fine">游客身份保存在当前浏览器。支持手机号登录时，可在页面顶部登录并绑定宠物，换设备继续。</p></form>`;
   }
   for (const selector of ['#prepare', '#practice', '#practice-ai']) { const node = $(selector); if (node) node.hidden = isBoxing; }
   if (isBoxing && mine) { const score = boxingLobby?.leaderboard.find(p => p.id === mine.id)?.score || 0; const value = $('#my-pet .pet-score strong'); if (value) value.textContent = score; }
   const rivals = isBoxing ? boxingLobby?.pets || [] : state.pets.filter(p => p.ready && p.defense);
-  $('#rivals').innerHTML = rivals.map(p => `<article class="rival-card">${avatar(p)}<span class="badge ${p.bot ? '' : 'ready'}">${p.bot ? '训练宠物 · 不计榜' : '玩家宠物 · 可挑战'}</span><h3>${escape(p.name)}</h3><p>${isBoxing ? '宠物对战 ＋ 真人同时应战' : p.bot ? '先练一场，熟悉人宠应战' : `${p.score} 积分 · ${p.wins} 胜 ${p.losses} 负`}</p><div class="rival-bottom"><span class="ready-text">● ${isBoxing ? '可以开打' : '题已备好'}</span><button data-challenge="${p.id}" ${!mine ? 'disabled' : ''}>挑战它 ↗</button></div></article>`).join('') || '<div class="empty">还没有其他宠物。将页面分享给同一服务器上的另一位玩家。</div>';
+  $('#rivals').innerHTML = rivals.map(p => `<article class="rival-card">${avatar(p)}<span class="badge ${p.bot ? '' : 'ready'}">${p.bot ? '训练宠物 · 不计榜' : '玩家宠物 · 可挑战'}</span><h3>${escape(petDisplayName(p.name))}</h3><p>${isBoxing ? '宠物对战 ＋ 真人同时应战' : p.bot ? '先练一场，熟悉人宠应战' : `${p.score} 积分 · ${p.wins} 胜 ${p.losses} 负`}</p><div class="rival-bottom"><span class="ready-text">● ${isBoxing ? '可以开打' : '题已备好'}</span><button data-challenge="${p.id}" ${!mine ? 'disabled' : ''}>挑战它 ↗</button></div></article>`).join('') || '<div class="empty">还没有其他宠物。将页面分享给同一服务器上的另一位玩家。</div>';
   const ladder = isBoxing ? boxingLobby?.leaderboard || [] : state.leaderboard;
-  $('#leaderboard').innerHTML = ladder.length ? ladder.map((p, i) => `<div class="rank-row ${p.id === mine?.id ? 'is-mine' : ''}"><span class="rank-no">${String(i + 1).padStart(2, '0')}</span>${avatar(p, 'tiny')}<div><b>${escape(p.name)}${p.id === mine?.id ? ' <small>你</small>' : ''}</b><small>${p.played} 场 · 计分用时 ${duration(p.rankMs)}</small></div><strong>${p.score}</strong></div>`).join('') : '<div class="empty">第一位上榜的宠物，<br>会是你的搭档吗？</div>';
-  $('#matches').innerHTML = isBoxing ? (boxingLobby?.matches.length ? boxingLobby.matches.map(m => `<div class="match-row"><div><b>${m.names.map(escape).join(' vs ')}</b><small>打拳 · ${m.training ? '训练场' : '积分场'} · ${m.status === 'done' ? '已结算' : m.status === 'void' ? '已作废' : '进行中'}</small></div><button data-boxing-open="${m.id}">${m.status === 'active' ? '进入挑战' : '查看结果'}</button></div>`).join('') : '<div class="empty">还没有拳赛，选择上面的宠物开始吧。</div>') : state.challenges.length ? state.challenges.map(m => {
+  $('#leaderboard').innerHTML = ladder.length ? ladder.map((p, i) => `<div class="rank-row ${p.id === mine?.id ? 'is-mine' : ''}"><span class="rank-no">${String(i + 1).padStart(2, '0')}</span>${avatar(p, 'tiny')}<div><b>${escape(petDisplayName(p.name))}${p.id === mine?.id ? ' <small>你</small>' : ''}</b><small>${p.played} 场 · 计分用时 ${duration(p.rankMs)}</small></div><strong>${p.score}</strong></div>`).join('') : '<div class="empty">第一位上榜的宠物，<br>会是你的搭档吗？</div>';
+  $('#matches').innerHTML = isBoxing ? (boxingLobby?.matches.length ? boxingLobby.matches.map(m => `<div class="match-row"><div><b>${m.names.map(petDisplayName).map(escape).join(' vs ')}</b><small>打拳 · ${m.training ? '训练场' : '积分场'} · ${m.status === 'done' ? '已结算' : m.status === 'void' ? '已作废' : '进行中'}</small></div><button data-boxing-open="${m.id}">${m.status === 'active' ? '进入挑战' : '查看结果'}</button></div>`).join('') : '<div class="empty">还没有拳赛，选择上面的宠物开始吧。</div>') : state.challenges.length ? state.challenges.map(m => {
     const own = m.sides.find(s => s.own), rival = m.sides.find(s => !s.own);
     const label = m.status === 'void' ? '已作废 · 不计分' : m.status === 'done' ? (m.training ? '训练完成' : !m.winner ? '平局' : m.winner === mine?.id ? '获胜' : '惜败') : status(own.human);
-    return `<div class="match-row">${avatar(rival.pet, 'tiny')}<div><b>${escape(mine.name)} <span class="muted">vs</span> ${escape(rival.pet.name)}</b><small>${m.training ? '训练赛' : '积分挑战'} · ${label}</small></div><button data-open="${m.id}">${m.status === 'active' && ['pending', 'running'].includes(own.human.status) ? '进入挑战' : '查看结果'}</button></div>`;
+    return `<div class="match-row">${avatar(rival.pet, 'tiny')}<div><b>${escape(petDisplayName(mine.name))} <span class="muted">vs</span> ${escape(petDisplayName(rival.pet.name))}</b><small>${m.training ? '训练赛' : '积分挑战'} · ${label}</small></div><button data-open="${m.id}">${m.status === 'active' && ['pending', 'running'].includes(own.human.status) ? '进入挑战' : '查看结果'}</button></div>`;
   }).join('') : '<div class="empty horizontal">还没有挑战记录。挑一位对手，开始第一场吧。</div>';
   if ($('#rules-card')) {
     const card = $('#rules-card');
@@ -151,13 +152,13 @@ async function openMatch(id) {
     replay(game.level.rows, saved); game.actions = saved;
   } catch { game.actions = ''; }
   $('#game-kind').textContent = m.training ? 'TRAINING · 训练挑战，不计榜' : 'RANKED · 宠物积分挑战';
-  $('#game-title').textContent = `挑战 ${m.sides.find(s => !s.own).pet.name} 的守擂关`;
+  $('#game-title').textContent = `挑战 ${petDisplayName(m.sides.find(s => !s.own).pet.name)} 的守擂关`;
   showDialog(); drawBoard(); renderSide(); updateClock();
   if (m.status === 'active' && m.sides.find(s => s.own).human.status === 'running' && replay(game.level.rows, game.actions).won) await submit(false);
 }
 function openPractice(level) {
   clearInterval(replayTimer); game = { kind: 'practice', level, actions: '', startedAt: Date.now() };
-  $('#game-kind').textContent = 'PRACTICE · 自己的守擂关，不计分'; $('#game-title').textContent = `${state.mine.name} 出的题`;
+  $('#game-kind').textContent = 'PRACTICE · 自己的守擂关，不计分'; $('#game-title').textContent = `${petDisplayName(state.mine.name)} 出的题`;
   showDialog(); drawBoard(); renderSide(); updateClock();
 }
 function openReplay(level, actions, title, note, pet = state.mine, run = {}) {
@@ -181,7 +182,7 @@ function drawAgent() {
   const own = game.kind === 'challenge' ? game.match.sides.find(s => s.own) : null;
   const run = game.kind === 'replay' ? { actions: game.replayActions, steps: replay(game.level.rows, game.replayActions).steps, status: game.replayActions.length < game.replayLength ? 'running' : replay(game.level.rows, game.replayActions).won ? 'cleared' : 'failed', note: game.note } : own?.agent || game.practiceAgent;
   const pet = own?.pet || game.replayPet || state.mine;
-  $('#agent-name').textContent = `${pet.name} · AI`;
+  $('#agent-name').textContent = `${petDisplayName(pet.name)} · AI`;
   $('#agent-board').style.gridTemplateColumns = `repeat(${game.level.rows.length}, minmax(0, 1fr))`;
   $('#agent-board').innerHTML = boardMarkup(game.level.rows, run?.actions || '', pet);
   $('#agent-steps').textContent = `${run?.steps || 0} 步`;
@@ -306,16 +307,16 @@ function renderSide() {
   drawAgent();
   if (game.kind !== 'challenge') {
     const pet = game.replayPet || state.mine;
-    $('#agent-card').innerHTML = `<div class="agent-heading">${avatar(pet)}<div><h3>${escape(pet.name)}</h3><p>${game.kind === 'replay' ? escape(game.note) : game.practiceOrigin ? '原对局已作废，继续练习原关卡' : '自己的关卡，放心练习'}</p></div></div>`;
+    $('#agent-card').innerHTML = `<div class="agent-heading">${avatar(pet)}<div><h3>${escape(petDisplayName(pet.name))}</h3><p>${game.kind === 'replay' ? escape(game.note) : game.practiceOrigin ? '原对局已作废，继续练习原关卡' : '自己的关卡，放心练习'}</p></div></div>`;
     $('#result-card').innerHTML = `<div class="result"><b>${game.kind === 'replay' ? '回放仅展示已执行的操作' : '这张关卡已通过可解性验证'}</b><p>${game.kind === 'replay' ? '算法搜索与大模型模式均明确标注，不使用出题证明代替参赛操作。' : '自己试玩不计排名。可以撤销、重来，也可以从主页让宠物试跑。'}</p></div>`;
     if (game.kind === 'practice' && replay(game.level.rows, game.actions).won) $('#result-card').innerHTML = '<div class="result success"><h3>试玩通关！</h3><p>这次不计分。可以再玩一次，或者回小院休息一下。</p></div>';
     return;
   }
   const m = game.match, own = m.sides.find(s => s.own);
-  $('#agent-card').innerHTML = m.sides.map(s => `<div class="agent-block"><div class="agent-heading">${avatar(s.pet, 'small-pet')}<div><h3>${escape(s.pet.name)}${s.own ? ' · 你的搭档' : ''}</h3><p>${escape(modelLabel(s.agent.model || method(s.agent.method || state.mode), s.agent.effort))}</p></div></div><div class="run-line"><span>宠物</span><b>${status(s.agent)} ${s.agent.score == null ? '' : `${s.agent.score > 0 ? '+' : ''}${s.agent.score}`}</b></div><div class="run-line"><span>主人</span><b>${status(s.human)} ${s.human.score == null ? '' : `${s.human.score > 0 ? '+' : ''}${s.human.score}`}</b></div>${s.agent.actions && s.agent.status !== 'running' && ['cleared','failed'].includes(own.human.status) ? `<button data-replay="${s.pet.id}" class="wide">观看宠物回放 ▶</button>` : `<p class="fine">${s.own ? '左侧实时展示你的宠物进度。' : '对手的完整路线在你完成后显示。'}</p>`}</div>`).join('');
+  $('#agent-card').innerHTML = m.sides.map(s => `<div class="agent-block"><div class="agent-heading">${avatar(s.pet, 'small-pet')}<div><h3>${escape(petDisplayName(s.pet.name))}${s.own ? ' · 你的搭档' : ''}</h3><p>${escape(modelLabel(s.agent.model || method(s.agent.method || state.mode), s.agent.effort))}</p></div></div><div class="run-line"><span>宠物</span><b>${status(s.agent)} ${s.agent.score == null ? '' : `${s.agent.score > 0 ? '+' : ''}${s.agent.score}`}</b></div><div class="run-line"><span>主人</span><b>${status(s.human)} ${s.human.score == null ? '' : `${s.human.score > 0 ? '+' : ''}${s.human.score}`}</b></div>${s.agent.actions && s.agent.status !== 'running' && ['cleared','failed'].includes(own.human.status) ? `<button data-replay="${s.pet.id}" class="wide">观看宠物回放 ▶</button>` : `<p class="fine">${s.own ? '左侧实时展示你的宠物进度。' : '对手的完整路线在你完成后显示。'}</p>`}</div>`).join('');
   $('#agent-card').querySelectorAll('[data-replay]').forEach(button => button.addEventListener('click', () => {
     const s = m.sides.find(s => s.pet.id === button.dataset.replay);
-    openReplay(s.level, s.agent.actions, `${s.pet.name} · 挑战回放`, `${modelLabel(s.agent.model || method(s.agent.method), s.agent.effort)} · ${status(s.agent)} · ${s.agent.steps || 0} 步`, s.pet, s.agent);
+    openReplay(s.level, s.agent.actions, `${petDisplayName(s.pet.name)} · 挑战回放`, `${modelLabel(s.agent.model || method(s.agent.method), s.agent.effort)} · ${status(s.agent)} · ${s.agent.steps || 0} 步`, s.pet, s.agent);
   }));
   if (m.status === 'void') $('#result-card').innerHTML = `<div class="result"><h3>本场不计分</h3><p>${escape(m.voidReason)}</p></div>`;
   else if (m.status === 'done') {
@@ -396,7 +397,7 @@ catch (e) { $('#my-pet').innerHTML = '<div class="empty">连接失败，请刷�
 if (document.modelContext?.registerTool) {
   const lifetime = new AbortController();
   const tools = [
-    { name: 'get_pet_rankings', title: '查看宠物积分榜', description: '读取当前宠物积分排名、胜负和比赛场次，不创建比赛、不改变积分。', read: async () => { await refresh(); return state.leaderboard.map(p => ({ name: p.name, score: p.score, played: p.played, wins: p.wins, losses: p.losses })); } },
+    { name: 'get_pet_rankings', title: '查看宠物积分榜', description: '读取当前宠物积分排名、胜负和比赛场次，不创建比赛、不改变积分。', read: async () => { await refresh(); return state.leaderboard.map(p => ({ name: petDisplayName(p.name), score: p.score, played: p.played, wins: p.wins, losses: p.losses })); } },
     { name: 'get_my_score_history', title: '查看我的积分明细', description: '读取当前用户宠物最近 50 场正式比赛的积分变化，训练赛不在其中。', read: async () => api('/api/score-ledger') },
   ];
   for (const tool of tools) {

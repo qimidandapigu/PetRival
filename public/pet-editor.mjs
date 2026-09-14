@@ -1,3 +1,4 @@
+import { petDisplayName } from '/shared/pet.mjs';
 import { PET_SPECIES, SPECIES_LABELS, PET_FILE_LIMIT, defaultAppearance, validateAppearance, petMarkup, exportPet, parsePetFile } from '/shared/pet.mjs';
 import { encodeLook, decodeLook, validateLook, imagePlacement, pixelsFromRgba } from '/shared/pet-studio.mjs';
 
@@ -15,7 +16,7 @@ function download(blob, filename) {
 }
 export function openPetEditor(pet, { onSave } = {}) {
   if (activeEditor) { activeEditor.focus(); return; }
-  let draft = { name: pet.name, species: PET_SPECIES.includes(pet.species) ? pet.species : 'xiaotangyuan', appearance: validateAppearance(pet.appearance ?? defaultAppearance(pet.species)) };
+  let draft = { name: petDisplayName(pet.name), species: PET_SPECIES.includes(pet.species) ? pet.species : 'xiaotangyuan', appearance: validateAppearance(pet.appearance ?? defaultAppearance(pet.species)) };
   let brush = '#FFFAE9', history = [], drawing = false, lastCell = -1, cursor = 0, busy = false, sourceImage = null, cropArt = null, dragging = null;
   const previousKey = `petrival-previous-look:${pet.id || 'local'}`;
   let previousLook = null;

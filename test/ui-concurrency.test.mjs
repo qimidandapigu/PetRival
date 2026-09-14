@@ -1,3 +1,4 @@
+import { petDisplayName } from '../shared/pet.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ function ui(overrides = {}) {
   const context = vm.createContext({
     document: { hidden: false, querySelector: selector => selector === '#practice-ai' ? practice : noop, querySelectorAll: () => [], addEventListener(type, callback) { documentEvents.set(type, callback); } },
     setInterval() {}, clearInterval() {}, setTimeout() {}, clearTimeout() {}, console,
-    AbortController, ...overrides,
+    AbortController, petDisplayName, ...overrides,
   });
   const code = source.slice(source.indexOf('\n') + 1, source.lastIndexOf("try { await api('/api/session'"));
   vm.runInContext(code + `
@@ -134,7 +135,7 @@ test('an opponent replay animates only the AI lane and keeps that pet identity i
   }
   const context = vm.createContext({
     document: { querySelector: node, querySelectorAll: () => [], addEventListener() {} },
-    petMarkup: pet => `<svg data-pet="${pet.id}"></svg>`, replay, renderRows, RULES,
+    petDisplayName, petMarkup: pet => `<svg data-pet="${pet.id}"></svg>`, replay, renderRows, RULES,
     createCompanionHub: () => ({ update() {} }),
     setInterval(callback) { advance = callback; return 1; }, clearInterval() {}, setTimeout() {}, clearTimeout() {},
   });

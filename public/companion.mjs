@@ -1,3 +1,4 @@
+import { petDisplayName } from '/shared/pet.mjs';
 import { petMarkup } from '/shared/pet.mjs'; import { createWorldScene } from '/world-scene.mjs';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -44,11 +45,11 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
   } });
   function renderLife(life) {
     scene.update({ pet: state?.mine || null, life, now: Date.now() + serverClockOffset });
-    $('#world-pet-name').textContent = state?.mine ? `${state.mine.name} · Lv.${state.mine.progression?.level || 1}` : '等一位小伙伴入住';
+    $('#world-pet-name').textContent = state?.mine ? `${petDisplayName(state.mine.name)} · Lv.${state.mine.progression?.level || 1}` : '等一位小伙伴入住';
     const when = { morning: '清晨', day: '午后', evening: '傍晚', night: '夜晚' };
     $('#world-time').textContent = life ? `第 ${life.day} 天 · ${when[life.timeOfDay] || '晴日'}` : '晴风小院';
     $('#world-activity').textContent = life ? `${life.location.name} · ${life.activityLabel}` : '领养后，小院就有了主人';
-    $('#world-live-state').textContent = life ? `${state.mine.name} · ${life.activityLabel}` : '小院展示 · 等待入住';
+    $('#world-live-state').textContent = life ? `${petDisplayName(state.mine.name)} · ${life.activityLabel}` : '小院展示 · 等待入住';
     for (const [key, value] of [['energy', life?.energy], ['satiety', life ? 100 - life.hunger : undefined], ['mood', life?.mood]]) {
       $(`#${key}-value`).textContent = value === undefined ? '—' : Math.round(value);
       $(`#${key}-meter`).value = value || 0;
@@ -89,9 +90,9 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
   }
   function drawMessages(pendingText) {
     const log = $('#chat-log'), nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-    log.innerHTML = messages.length ? messages.map(m => `<div class="chat-message ${m.role === 'user' ? 'from-user' : 'from-pet'}"><span class="message-author">${m.role === 'user' ? '你' : escape(state.mine?.name)}${m.role === 'assistant' ? `<small>${m.method === 'model' ? escape(m.model || 'AI 对话') : '本地规则回复'}</small>` : ''}</span><div class="message-bubble">${escape(m.content)}</div></div>`).join('') : `<div class="chat-welcome"><span class="welcome-spark">✦</span><h3>${state?.mine ? '风吹过小院，它也在等你' : '先认识你的第一位搭档'}</h3><p>${state?.mine ? '左边是它正在生活的小世界。<br>在这里，聊聊日常，也聊聊你。' : '领养一只宠物，让它住进这座小院。<br>一起散步、照料菜地、玩游戏。'}</p>${state?.mine ? '' : '<a href="#my-pet">去领养宠物 →</a>'}</div>`;
+    log.innerHTML = messages.length ? messages.map(m => `<div class="chat-message ${m.role === 'user' ? 'from-user' : 'from-pet'}"><span class="message-author">${m.role === 'user' ? '你' : escape(petDisplayName(state.mine?.name))}${m.role === 'assistant' ? `<small>${m.method === 'model' ? escape(m.model || 'AI 对话') : '本地规则回复'}</small>` : ''}</span><div class="message-bubble">${escape(m.content)}</div></div>`).join('') : `<div class="chat-welcome"><span class="welcome-spark">✦</span><h3>${state?.mine ? '风吹过小院，它也在等你' : '先认识你的第一位搭档'}</h3><p>${state?.mine ? '左边是它正在生活的小世界。<br>在这里，聊聊日常，也聊聊你。' : '领养一只宠物，让它住进这座小院。<br>一起散步、照料菜地、玩游戏。'}</p>${state?.mine ? '' : '<a href="#my-pet">去领养宠物 →</a>'}</div>`;
     if (pendingText && messages.at(-1)?.content !== pendingText) log.insertAdjacentHTML('beforeend', `<div class="chat-message from-user"><span class="message-author">你</span><div class="message-bubble">${escape(pendingText)}</div></div>`);
-    if (busy) log.insertAdjacentHTML('beforeend', `<div class="chat-thinking">${escape(state.mine.name)} 正在想怎么回复你<span> · · ·</span></div>`);
+    if (busy) log.insertAdjacentHTML('beforeend', `<div class="chat-thinking">${escape(petDisplayName(state.mine.name))} 正在想怎么回复你<span> · · ·</span></div>`);
     if (nearBottom || pendingText) log.scrollTop = log.scrollHeight;
   }
   async function loadHistory() {
@@ -161,7 +162,7 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
       $('#chat-avatar').innerHTML = petMarkup(mine || { species: 'xiaotangyuan' });
       $('#game-pet-art').innerHTML = petMarkup(mine || { species: 'xiaotangyuan' });
       $('#world-avatar').innerHTML = petMarkup(mine || { species: 'xiaotangyuan' });
-      $('#chat-title').textContent = mine ? `和${mine.name}聊聊` : '和你的搭档聊聊';
+      $('#chat-title').textContent = mine ? `和${petDisplayName(mine.name)}聊聊` : '和你的搭档聊聊';
     }
     $('#chat-mode').textContent = state.mode === 'model' ? (state.model === 'deepseek-v4-pro' ? 'DeepSeek Pro' : state.model || 'AI 对话') : '本地规则对话';
     renderLife(mine?.life);

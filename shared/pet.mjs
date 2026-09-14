@@ -1,6 +1,6 @@
 // Cosmetic data only. Never carry ownership, scores, credentials, or executable art.
 export const PET_SPECIES = Object.freeze(['xiaotangyuan', 'sprout', 'fox', 'ghost']);
-export const SPECIES_LABELS = Object.freeze({ xiaotangyuan: '小汤圆', sprout: '芽芽灵', fox: '火花狐', ghost: '云朵兽' });
+export const SPECIES_LABELS = Object.freeze({ xiaotangyuan: '小精灵', sprout: '芽芽灵', fox: '火花狐', ghost: '云朵兽' });
 export const PET_FILE_LIMIT = 65536;
 const HEX = /^#[0-9a-f]{6}$/i;
 const PAL = { O: '#66594D', W: '#FFFAE9', C: '#EEE1BC', S: '#DBC998', E: '#354B3F', P: '#F2A79D', R: '#D87068', G: '#719659', L: '#ACCA7D', D: '#52754C', F: '#E0A365', A: '#BF7B4A', B: '#A2B9CE', H: '#D5E3E9', I: '#7E96B1' };
@@ -76,3 +76,6 @@ export function petMarkup(pet, extraClass = '') {
   const rects = appearance.pixels.map((color, index) => color ? `<rect x="${index % 16}" y="${Math.floor(index / 16)}" width="1" height="1" fill="${color}"/>` : '').join('');
   return `<svg class="pixel-pet ${species}${classes ? ` ${classes}` : ''}" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true" focusable="false">${rects}</svg>`;
 }
+
+// Display compatibility only; stored names and species IDs remain unchanged.
+export function petDisplayName(name) { return name === '小汤圆' ? '小精灵' : name; }
