@@ -11,19 +11,19 @@ const frames=(b,n,inputs)=>{for(let i=0;i<n;i++)stepBout(b,inputs);return b;};
 test('human opponent has exactly five times HP and damage, pet lane remains normal and independent',()=>{
   const pet=near(newBout()),human=near(newBout(5));
   frames(pet,2,['advance','jab']);frames(human,2,['advance','jab']);
-  assert.equal(pet.fighters[0].hp,22);assert.equal(human.fighters[0].hp,0);
+  assert.equal(pet.fighters[0].hp,27);assert.equal(human.fighters[0].hp,15);
   assert.equal(pet.fighters[1].maxHp,30);assert.equal(human.fighters[1].maxHp,150);
-  assert.equal(pet.events.find(e=>e.type==='hit').damage,8);assert.equal(human.events.find(e=>e.type==='hit').damage,40);
+  assert.equal(pet.events.find(e=>e.type==='hit').damage,3);assert.equal(human.events.find(e=>e.type==='hit').damage,15);
   assert.equal(human.fighters[0].maxHp,30);assert.equal(human.fighters[0].power,1);
 });
 test('range, windup, blocking and recovery prevent instant or unlimited hits',()=>{
   const b=near(newBout());stepBout(b,['heavy','guard']);assert.equal(b.fighters[1].hp,30);
-  frames(b,4,['heavy','guard']);assert.equal(b.fighters[1].hp,26);
-  frames(b,8,['heavy','guard']);assert.equal(b.fighters[1].hp,26);
+  frames(b,4,['heavy','guard']);assert.equal(b.fighters[1].hp,30);
+  frames(b,8,['heavy','guard']);assert.equal(b.fighters[1].hp,30);
   const far=newBout();frames(far,20,['heavy','jab']);assert.deepEqual(far.fighters.map(f=>f.hp),[30,30]);
 });
 test('simultaneous lethal punches draw and terminal bouts never change',()=>{
-  const b=near(newBout());b.fighters.forEach(f=>f.hp=8);frames(b,2,['jab','jab']);
+  const b=near(newBout());b.fighters.forEach(f=>f.hp=3);frames(b,2,['jab','jab']);
   assert.equal(b.status,'done');assert.equal(b.winner,null);const done=JSON.stringify(b);frames(b,20,['jab','heavy']);assert.equal(JSON.stringify(b),done);
 });
 test('timeout compares HP percentage, surrender and losing time never create fast-loss advantage',()=>{
@@ -95,9 +95,9 @@ test('runtime restart voids unfinished fighting rather than resetting the clock 
 
 test('standing and released guard take full damage; only explicit guard reduces damage',()=>{
   const idle=near(newBout());assert.ok(idle.fighters.every(f=>f.action==='idle'));
-  frames(idle,2,['idle','jab']);assert.equal(idle.fighters[0].hp,22);
-  const guarded=near(newBout());frames(guarded,2,['guard','jab']);assert.equal(guarded.fighters[0].hp,28);
-  frames(guarded,8,['idle','jab']);assert.equal(guarded.fighters[0].hp,20,'release returns to full damage on the next punch');
+  frames(idle,2,['idle','jab']);assert.equal(idle.fighters[0].hp,27);
+  const guarded=near(newBout());frames(guarded,2,['guard','jab']);assert.equal(guarded.fighters[0].hp,30);
+  frames(guarded,8,['idle','jab']);assert.equal(guarded.fighters[0].hp,27,'release returns to full damage on the next punch');
 });
 test('human guard is held explicitly and release or disconnected input returns to neutral',async t=>{
   const f=await fixture(t),{a,rival}=await pets(f);const m=f.boxing.create(a,rival.id),bout=f.arena.s.boxingMatches[m.id].humans[0];

@@ -108,6 +108,7 @@ test('boxing skill uses visible fight state, freezes at creation, and applies on
   const skill = { gameId: 'boxing', name: '近身快拳', description: '远处接近，近处刺拳。', code: '(ctx: SkillContext) => ctx.distance > 114 ? "advance" : "jab"' };
   assert.equal(boxingSkillDecision(skill, { distance: 200 }).choice, 'advance');
   assert.equal(boxingSkillDecision(skill, { distance: 100 }).choice, 'jab');
+  assert.equal(boxingSkillDecision({ ...skill, code: 'ctx => "throw"' }, {}).choice, 'throw');
   assert.equal(boxingSkillDecision({ ...skill, code: 'ctx => "win"' }, {}).status.state, 'error');
   arena.updateCompetitionSkill('owner', { revision: 0, skill });
   const boxing = new BoxingArena(arena, brain, { autoTick: false });

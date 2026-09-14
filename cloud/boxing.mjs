@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { BoxingArena } from '../server/boxing-arena.mjs';
-import { BOXING, ACTIONS, stepBout, fighterObservation } from '../shared/boxing.mjs';
+import { BOXING, ACTIONS, boxingInstructions, boxingBotAction, stepBout, fighterObservation } from '../shared/boxing.mjs';
 import { ApiError } from '../server/arena.mjs';
 import { boxingSkillDecision } from '../server/competition-skill.mjs';
 
@@ -50,8 +50,7 @@ export class CloudBoxing extends BoxingArena {
             }
             if (this.brain.mode === 'algorithm') {
               bout.decisions[i] = { source: 'algorithm', status: 'ready', skillStatus: c.skillStatus };
-              const o = fighterObservation(bout, i), phase = Math.floor(bout.frame / 12) % 6;
-              return o.distance > 110 ? 'advance' : phase === 0 ? 'guard' : phase === 1 ? 'retreat' : phase === 4 ? 'heavy' : 'jab';
+              return boxingBotAction(bout, i);
             }
             if (bout.frame >= c.until) { c.command = c.queue.shift() || 'idle'; c.until = bout.frame + (c.command === 'idle' ? 1 : BOXING.commandTicks); }
             return c.command;
@@ -107,7 +106,7 @@ export class CloudBoxing extends BoxingArena {
 
 export async function executeBoxing(brain, claim) {
   return brain.json([
-    { role: 'system', content: 'Control a pixel boxing fighter. Return JSON {"actions":["advance","jab","retreat"]}, 1 to 3 actions, each 0.5 seconds. Allowed idle, advance, retreat, jab, heavy, guard. Idle does NOT guard. Walk speed 220/sec; jab range114 damage8*power startup0.1s total0.4s; heavy range140 damage16*power startup0.25s total0.8s. Guard reduces damage to20%; cannot attack. Fighters cannot pass each other. Approach when far; attack and retreat in range. Timeout compares remaining HP percentage. You see visible current state only.' },
+    { role: 'system', content: boxingInstructions(claim.observation) },
     { role: 'user', content: JSON.stringify(claim.observation) },
   ], { playEffort: 'none', timeoutMs: 5000, maxTokens: 1024 });
 }

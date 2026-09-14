@@ -82,3 +82,13 @@ test('boxing skill is snapshotted at start, executes only for AI fighters and su
   assert.equal(view.human.decisions[0], null);
   const claim = await f.act(b => b.claim('alice')); assert.equal(claim.fighter, 1);
 });
+
+test('D1 preserves new rules and a quick throw tap after release; visible history survives reload', async t => {
+ const f=await fixture('model');t.after(()=>f.brain.close());
+ const game=await f.act(b=>b.create('alice',f.ids[1]));
+ await f.act(b=>{const bout=b.s.boxingMatches[game.id].humans[0];bout.fighters[0].x=350;bout.fighters[1].x=440;bout._controls[1].queue=['guard'];});
+ f.later(2200);await f.act(b=>b.input('alice',game.id,{action:'throw',seq:1}));await f.act(b=>b.input('alice',game.id,{action:'idle',seq:2}));
+ f.later(300);const view=await f.act(b=>b.get('alice',game.id));
+ assert.equal(view.human.rulesVersion,2);assert.equal(view.human.fighters[1].hp,146);
+ assert.ok(view.human.history.some(e=>e.type==='guardbreak'));assert.ok(!JSON.stringify(view).includes('_controls'));
+});

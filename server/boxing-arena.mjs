@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ApiError } from './arena.mjs';
-import { BOXING, ACTIONS, newBout, stepBout, finishBout, boxingScore, fighterObservation } from '../shared/boxing.mjs';
+import { BOXING, ACTIONS, boxingInstructions, boxingBotAction, newBout, stepBout, finishBout, boxingScore, fighterObservation } from '../shared/boxing.mjs';
 import { boxingSkillDecision } from './competition-skill.mjs';
 const need = (ok, text, status = 400) => { if (!ok) throw new ApiError(status, text); };
 const terminal = bout => bout?.status === 'done';
@@ -37,7 +37,7 @@ export class BoxingArena {
     const {match,side}=this.owned(owner,id), bout=match.humans[side];
     need(match.status==='active' && bout.status==='running','本场真人战斗已结束',409);
     need(ACTIONS.includes(action) && Number.isSafeInteger(seq) && seq>0,'无效操作');
-    if(seq>bout.seq){ bout.seq=seq; bout.input=action; bout.lastInputAt=this.now(); if(['jab','heavy'].includes(action))bout.pendingPunch={action,expiresAt:this.now()+500}; } return {ok:true,seq:bout.seq};
+    if(seq>bout.seq){ bout.seq=seq; bout.input=action; bout.lastInputAt=this.now(); if(['jab','heavy','throw'].includes(action))bout.pendingPunch={action,expiresAt:this.now()+500}; } return {ok:true,seq:bout.seq};
   }
   surrender(owner,id) { const {match,side}=this.owned(owner,id), bout=match.humans[side]; need(bout.status==='running','本场真人战斗已结束',409); finishBout(bout,1,'surrender'); this.settle(match); this.store.save(); return this.get(owner,id); }
   get(owner,id) {
@@ -64,7 +64,7 @@ export class BoxingArena {
     const task=(async()=>{
       try {
         const result=await this.brain.json([
-          {role:'system',content:'Control a pixel boxing fighter. Return JSON {"actions":["advance","jab","retreat"]}, 1 to 3 actions, each lasts 0.5 seconds. Allowed: idle, advance, retreat, jab, heavy, guard. Idle means standing without blocking. Blocking requires choosing guard. Never output explanations. Arena width 800; fighters cannot pass each other. Walking speed 220 units/sec. Jab range 114, damage 8*power, startup 0.1s, total 0.4s. Heavy range 140, damage 16*power, startup 0.25s, total 0.8s. Guard reduces damage to 20 percent but cannot attack; retreat can avoid punches entirely. Current attacks finish before new attacks. Approach when far away. Alternate quick attacks and retreats at close distance; punish a heavy attack with a heavy counter or escape. Do not stand guarding forever. Timeout compares remaining HP percentage. You only see current visible state, no future player inputs.'},
+          {role:'system',content:boxingInstructions(fighterObservation(c.bout,c.fighter))},
           {role:'user',content:JSON.stringify(fighterObservation(c.bout,c.fighter))}
         ],{playEffort:'none',timeoutMs:5000,signal:c.controller.signal});
         if(!Array.isArray(result?.actions)||result.actions.length<1||result.actions.length>3||!result.actions.every(a=>ACTIONS.includes(a))) throw new Error('invalid boxing actions');
@@ -93,8 +93,7 @@ export class BoxingArena {
     }
     if(this.brain.mode==='algorithm') {
       c.bout.decisions[c.fighter]={source:'algorithm',status:'ready',skillStatus:c.skillStatus};
-      const o=fighterObservation(c.bout,c.fighter), phase=Math.floor(c.bout.frame/12)%6;
-      return o.distance>110?'advance':phase===0?'guard':phase===1?'retreat':phase===4?'heavy':'jab';
+      return boxingBotAction(c.bout,c.fighter);
     }
     if(c.bout.frame>=c.until){ const next=c.queue.shift(); c.command=next||'idle'; c.until=c.bout.frame+(next?BOXING.commandTicks:4); }
     if(c.queue.length<2&&!c.pending&&this.now()-c.lastRequest>700) this.request(c);

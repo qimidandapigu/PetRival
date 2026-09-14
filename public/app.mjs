@@ -79,7 +79,7 @@ function render() {
   if ($('#rules-card')) {
     const card = $('#rules-card');
     if (!card.sokobanRules) card.sokobanRules = card.innerHTML;
-    card.innerHTML = isBoxing ? '<span class="eyebrow">HOW TO PLAY</span><h3>两场一起打。</h3><ol><li><b>宠物对战</b><span>左边双方正常 30 血</span></li><li><b>你也上场</b><span>右边对手 150 血、5 倍攻击</span></li><li><b>合计得分</b><span>胜 +100，负 −20，平 0</span></li></ol><p>A/D 移动，J 轻拳，K 重拳，按住 L 防御。45 秒，时间到比剩余血量百分比；训练不计排名。</p>' : card.sokobanRules;
+    card.innerHTML = isBoxing ? '<span class="eyebrow">HOW TO PLAY</span><h3>两场一起打。</h3><ol><li><b>宠物对战</b><span>左边双方正常 30 血</span></li><li><b>你也上场</b><span>右边对手 150 血、5 倍攻击</span></li><li><b>合计得分</b><span>胜 +100，负 −20，平 0</span></li></ol><p>A/D 移动，J 轻拳，K 重拳，按住 L 防御，I 抱摔破防；挡住重拳可反击。45 秒，时间到比剩余血量百分比；训练不计排名。</p>' : card.sokobanRules;
   }
   bindHome();
 }
