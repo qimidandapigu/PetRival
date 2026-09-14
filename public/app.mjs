@@ -4,7 +4,7 @@ import { openBoxing } from '/boxing.mjs';
 import { openSkillEditor } from '/skill-editor.mjs';
 
 const $ = selector => document.querySelector(selector);
-const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escape = value => String(petDisplayName(value) ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const avatar = (pet, extra = '') => petMarkup(typeof pet === 'string' ? { species: pet } : pet, extra);
 const duration = ms => `${Math.floor(Math.max(0, ms || 0) / 60000).toString().padStart(2, '0')}:${Math.floor(Math.max(0, ms || 0) % 60000 / 1000).toString().padStart(2, '0')}`;
 const method = value => value === 'model' ? '大模型' : value === 'algorithm-starter' ? '算法入门题' : '算法 AI';

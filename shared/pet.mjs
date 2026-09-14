@@ -78,4 +78,4 @@ export function petMarkup(pet, extraClass = '') {
 }
 
 // Display compatibility only; stored names and species IDs remain unchanged.
-export function petDisplayName(name) { return name === '小汤圆' ? '小精灵' : name; }
+export function petDisplayName(name) { return typeof name === 'string' ? name.replaceAll('小汤圆', '小精灵') : name; }

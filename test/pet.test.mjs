@@ -1,3 +1,4 @@
+import { petDisplayName } from '../shared/pet.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PET_SPECIES, defaultAppearance, validateAppearance, petMarkup, exportPet, parsePetFile } from '../shared/pet.mjs';
@@ -41,4 +42,10 @@ test('pet SVG drops hostile attributes and recovers invalid stored artwork', () 
   const svg = petMarkup({ species: 'xiaotangyuan', name: '<script>bad</script>', appearance: { pixels: [] } }, 'tiny "><script> alert(1)');
   assert.match(svg, /class="pixel-pet xiaotangyuan tiny"/); assert.ok(svg.includes('<rect'));
   assert.ok(!svg.includes('<script')); assert.ok(!svg.includes('alert(')); assert.ok(!svg.includes('style='));
+});
+
+test("legacy pet names and narrative display use the new name", () => {
+  assert.equal(petDisplayName("小汤圆在等你，小汤圆想跳跃"), "小精灵在等你，小精灵想跳跃");
+  assert.equal(petDisplayName("蓝莓"), "蓝莓");
+  assert.equal(petDisplayName(undefined), undefined);
 });

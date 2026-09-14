@@ -1,7 +1,7 @@
 import { petDisplayName } from '/shared/pet.mjs';
 import { petMarkup } from '/shared/pet.mjs'; import { createWorldScene } from '/world-scene.mjs';
 
-const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escape = value => String(petDisplayName(value) ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) {
   const root = document.querySelector('#companion-hub');
@@ -56,7 +56,7 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
     }
     const events = life?.events || [];
     const recent = events.length ? events.reduce((latest, item) => item.at > latest.at ? item : latest, events[0]) : null;
-    $('#world-recent').textContent = recent?.text || '小院里的一天，正慢慢展开。';
+    $('#world-recent').textContent = petDisplayName(recent?.text) || '小院里的一天，正慢慢展开。';
     $('#world-crops').textContent = life ? `菜地生长 ${Math.round(life.crops.growth)}% · 已收获 ${life.crops.harvests} 次` : '小小菜地，慢慢生长';
     $('#chat-presence').textContent = life ? `● ${life.location.name} · ${life.activityLabel}` : '领养后开启对话';
   }
