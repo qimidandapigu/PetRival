@@ -38,3 +38,7 @@ Daily check-in AI credit, ads and payment are not part of v11. Refer to [CONTRIB
 Preparation jobs now persist a server-validated size/box/difficulty snapshot in existing JSON data. Unlocks derive from verified unique pet clears; no migration is required. Both Worker and Node support 8–10 square boards and 2–4 boxes, including step observations and previews. Failed hard-board verification keeps the previous ready level. See [implementation and validation](PUZZLE-MASTERY-2026-09-14.md).
 
 Current release: **v14 succeeded** on 2026-09-14. Puzzle mastery runtime source is GitHub `aaaca5e2429ff1caab32b3548bb6271a5f26da89`, Sites source `1dc34b0beb7d8ce7066e8fac1e3afbfc50d633b9`; 50 runtime source files match. See the puzzle mastery validation record above. Later documentation-only commits do not change the deployed runtime.
+
+## Spirit naming release
+
+Sites v15 succeeded on 2026-09-14. GitHub runtime source: `f2be068`; Sites source: `00c95c3e529a34157380e15941b2c640df4349ce`. Default labels, legacy pet names, displayed chat text and courtyard activity use 小精灵. Stored identity, species IDs and historical records are unchanged. 14 targeted regression tests, syntax checks and build passed; deployment `appgdep_6aa7bc55014c8191a91398d6f04db4c7` reported succeeded. No new browser or real-model gameplay test was performed for this text change.
