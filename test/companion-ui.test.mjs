@@ -1,3 +1,4 @@
+import { petDisplayName } from '../shared/pet.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -75,8 +76,8 @@ async function companion({ post = async request => ({ messages: [{ role: 'user',
     requests.push({ ...input }); return post(input);
   };
   const source = readFileSync(new URL('../public/companion.mjs', import.meta.url), 'utf8')
-    .replace(/^import[^\n]*\n/, '').replace('export function createCompanionHub', 'function createCompanionHub');
-  const context = vm.createContext({ document, crypto: { randomUUID }, petMarkup: () => '<svg></svg>', Date: class extends Date { static now() { return localNow; } }, createWorldScene: () => ({ update(frame) { sceneFrames.push(JSON.parse(JSON.stringify(frame))); }, destroy() {} }) });
+    .replace(/^import[^\n]*\n/gm, '').replace('export function createCompanionHub', 'function createCompanionHub');
+  const context = vm.createContext({ petDisplayName, document, crypto: { randomUUID }, petMarkup: () => '<svg></svg>', Date: class extends Date { static now() { return localNow; } }, createWorldScene: () => ({ update(frame) { sceneFrames.push(JSON.parse(JSON.stringify(frame))); }, destroy() {} }) });
   vm.runInContext(source + '\nthis.createHub = createCompanionHub;', context);
   const hub = context.createHub({ api, notify() {}, refresh() {}, onPlay() {} });
   const state = { mode: 'algorithm', mine: { id: 'pet', name: '团子', species: 'xiaotangyuan', progression: { level: 1, xp: 0, xpIntoLevel: 0, xpForNextLevel: 100, clears: 0, skills: [] } } };

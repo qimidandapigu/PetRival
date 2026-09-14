@@ -1,3 +1,4 @@
+import { petDisplayName } from '../shared/pet.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 import { generate, replay, renderRows, RULES } from '../shared/game.mjs';
 
 const source = readFileSync(new URL('../public/app.mjs', import.meta.url), 'utf8').replace(/^import.*$/gm, '');
-const context = vm.createContext({ Date });
+const context = vm.createContext({ petDisplayName, Date });
 vm.runInContext(source.slice(source.indexOf('function completionView('), source.indexOf('function drawCompletion(')) + '\nthis.view = completionView;', context);
 const won = { won: true, steps: 11 };
 const challenge = (human = {}, status = 'active') => ({ kind: 'challenge', match: { status, sides: [{ own: true, human: { status: 'running', ...human } }] } });
@@ -44,7 +45,7 @@ test('actual gameplay shows the completion card once, preserves dismissal on red
       events: {}, classList: { toggle() {} }, addEventListener(name, fn) { this.events[name] = fn; }, querySelectorAll() { return []; }, showModal() { this.open = true; } });
     return nodes.get(selector);
   };
-  const ctx = vm.createContext({ document: { querySelector: node, querySelectorAll: () => [], addEventListener() {} },
+  const ctx = vm.createContext({ petDisplayName, document: { querySelector: node, querySelectorAll: () => [], addEventListener() {} },
     setInterval() {}, clearInterval() {}, setTimeout() {}, clearTimeout() {}, console, replay, renderRows, RULES,
     petMarkup: () => '<svg></svg>', Date: class extends Date { static now() { return now; } } });
   vm.runInContext(source.slice(source.indexOf('\n') + 1, source.lastIndexOf("try { await api('/api/session'")) + '\nstate={mine:{name:"团子"},mode:"algorithm"}; this.start=openPractice;this.move=act;this.redraw=drawBoard;this.current=()=>game;', ctx);

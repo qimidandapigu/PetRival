@@ -25,16 +25,17 @@ export function createCompanionHub({ api, notify, refresh, onPlay, onEditPet }) 
       </div>
     </section>
     <section class="panel game-library" id="game-library" aria-label="选择游戏">
-      <div class="section-heading"><div><span class="eyebrow">A LITTLE ADVENTURE</span><h2>游戏小屋</h2></div><span class="game-count">02</span></div>
+      <div class="section-heading"><div><span class="eyebrow">A LITTLE ADVENTURE</span><h2>游戏小屋</h2></div><span class="game-count">03</span></div>
       <button type="button" class="game-choice" id="choose-sokoban" aria-pressed="true">
         <span class="game-art" aria-hidden="true"><span class="mini-goal g-one">✿</span><span class="mini-goal g-two">✿</span><span class="mini-box b-one">×</span><span class="mini-box b-two">×</span><span id="game-pet-art"></span></span>
         <span class="game-choice-info"><span><strong>推箱子</strong><small>益智解谜 · 人宠同玩</small></span><span class="selected-check" id="sokoban-selected">✓ 已选择</span></span>
       </button>
       <button type="button" class="game-choice" id="choose-boxing" aria-pressed="false"><span class="game-choice-info"><span><strong>打拳</strong><small>宠物对战 · 真人同时应战</small></span><span class="selected-check" id="boxing-selected">选择 ↗</span></span></button>
+      <a class="game-choice" href="/jump.html" style="text-decoration:none;color:inherit"><span class="game-choice-info"><span><strong>小精灵跳跳课</strong><small>横版跳跃 · 你示范，它学习</small></span><span class="selected-check">试玩 ↗</span></span></a>
       <p class="game-description" id="game-description">生活之余，和搭档来一场推箱子。</p>
       <button type="button" id="hub-play" class="primary">进入推箱子 <span>↗</span></button>
       <a class="rival-link" href="#rival-section">去挑选一位对手 →</a>
-      <div class="coming-games"><span>＋</span><div>小院之外，也有小小冒险<small>共用宠物与存档，两种游戏分别排名</small></div></div>
+      <div class="coming-games"><span>＋</span><div>小院之外，也有小小冒险<small>推箱子与打拳分别排名；跳跳课为本机学习试玩</small></div></div>
     </section>
     `;
 

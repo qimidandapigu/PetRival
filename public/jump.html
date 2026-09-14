@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#183e39"><title>小精灵跳跳课 · PetRival</title><link rel="icon" href="/pet-badge.svg" type="image/svg+xml"><link rel="stylesheet" href="/jump.css"><script type="module" src="/jump.mjs"></script></head>
+<body><main>
+  <header><a href="/">← 回到小院</a><div><span class="eyebrow">PETRIVAL · 一起学会冒险</span><h1>小精灵跳跳课<span>试玩</span></h1></div><button id="soundless-pause" type="button">暂停</button></header>
+  <section class="play-area" aria-label="横版跳跃教学游戏">
+    <div class="level-bar"><label>练习关卡 <select id="level"><option value="0">01 跨过小溪</option><option value="1">02 换个位置</option><option value="2">03 更宽的小溪</option></select></label><span id="objective">小精灵收集 0 / 3 枚金币 · 机关未开</span></div>
+    <div class="viewport"><canvas id="jump-canvas" width="1100" height="470" tabindex="0" aria-label="蓝色是你，绿色是小精灵。左右移动，空格跳跃。金币和机关只有小精灵能触发。"></canvas><div class="legend"><span><i class="human-dot"></i>你 · 负责示范</span><span><i class="pet-dot"></i>小精灵 · 自己闯关</span></div><div id="finish" hidden><b>这一次，它自己做到了。</b><p>金币和机关，都由小精灵亲手完成。</p><button id="next-level" type="button">换一关试试 →</button></div></div>
+    <div class="status-bar"><span class="status-light"></span><p id="pet-status" role="status">它还不会跳。向右走，在小溪前按住空格示范一次。</p><span id="attempts">小精灵跌落 0 次</span></div>
+    <div class="tools"><button class="primary" id="teach" type="button">↶ 回到它身边示范</button><button id="retry-pet" type="button">让它再试一次</button><button id="restart" type="button">本关重来</button><label class="follow">镜头 <select id="camera"><option value="human">跟着我</option><option value="pet">跟着小精灵</option></select></label></div>
+    <div class="touch-controls" aria-label="触屏控制"><button data-key="left" aria-label="向左移动">←</button><button data-key="right" aria-label="向右移动">→</button><button class="jump-key" data-key="jump" aria-label="跳跃，长按跳得更远">跳跃 ↑</button></div>
+  </section>
+  <section class="below"><div class="instruction"><h2>你做一次，它试一次。</h2><p><kbd>←</kbd> <kbd>→</kbd> 或 <kbd>A</kbd> <kbd>D</kbd> 移动，<kbd>空格</kbd> 跳跃。<strong>按久一点，跳得远一点。</strong></p><p>你可以穿过金币和机关，但不能替它完成。跳过小溪并安全落地后，它会记住这次动作；它卡住时，回去再示范。</p></div><div class="learning"><div class="learning-heading"><h2>它的学习笔记</h2><b id="lesson-count">0 次示范</b></div><p id="learning-note">还没有成功跨坑的示范。平地乱跳和掉进水里的动作不会记入。</p><div id="lessons"></div><details><summary>这次试玩怎么学习、怎么保存？</summary><p>从你成功跨坑的动作里，记住起跳距离、方向与按键时长，再用于形状相近的小溪。属于示范记忆驱动的模仿原型，没有预装跳跃路线，也不是大模型训练。暂不学习所有动作和复杂路线。</p><p id="save-note">学习笔记只保存在当前浏览器，不计积分，不消耗模型额度，不会跨设备同步。</p><button id="forget" type="button">清空这只精灵的跳跃笔记</button></details></div></section>
+</main></body></html>

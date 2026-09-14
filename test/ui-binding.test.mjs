@@ -1,3 +1,4 @@
+import { petDisplayName } from '../shared/pet.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ test('polling must not multiply a preserved adoption form submission', async () 
   const noop = { addEventListener() {}, disabled: false };
   const nodes = { '#adopt': form, '#refresh': noop, '#close-game': noop, '#game-dialog': noop, '#undo': noop, '#restart': noop, '#give-up': noop, '#completion-primary': noop, '#completion-dismiss': noop, '#continue-practice': noop, '#retry-match': noop };
   let posts = 0;
-  const context = vm.createContext({
+  const context = vm.createContext({ petDisplayName,
     document: { querySelector: s => nodes[s] || null, querySelectorAll: () => [], addEventListener() {} },
     FormData: class { get(k) { return { name: 'Test', species: 'sprout', defense: 'on' }[k]; } },
     fetch: () => { posts++; return new Promise(() => {}); }, setInterval() {}, clearInterval() {}, setTimeout() {}, clearTimeout() {}, console,
@@ -32,7 +33,7 @@ test('reopening a locally solved but unacknowledged run retries the verified sub
   ] };
   const noop = { addEventListener() {}, open: false, showModal() {} };
   let submitted = 0;
-  const context = vm.createContext({ document: { querySelector: () => noop, querySelectorAll: () => [], addEventListener() {} }, localStorage: { getItem: () => g.proof }, setInterval() {}, clearInterval() {}, setTimeout() {}, clearTimeout() {}, replay, console, match, onSubmit: () => { submitted++; } });
+  const context = vm.createContext({ petDisplayName, document: { querySelector: () => noop, querySelectorAll: () => [], addEventListener() {} }, localStorage: { getItem: () => g.proof }, setInterval() {}, clearInterval() {}, setTimeout() {}, clearTimeout() {}, replay, console, match, onSubmit: () => { submitted++; } });
   const code = source.slice(source.indexOf('\n') + 1, source.lastIndexOf("try { await api('/api/session'"));
   vm.runInContext(code + '\nstate={mine:{id:"mine"}};api=async()=>match;drawBoard=()=>{};renderSide=()=>{};updateClock=()=>{};submit=async()=>onSubmit();this.testOpen=openMatch;', context);
   await context.testOpen('match');
