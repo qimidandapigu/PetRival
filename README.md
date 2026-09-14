@@ -2,6 +2,8 @@
 
 ## 当前统一版本
 
+当前线上 **Sites v14 已发布成功**：新增出题能力升级、8–10 格地图、2–4 箱和困难关筛选。功能已合入 GitHub main `aaaca5e`；195 项自动测试及隔离存档的浏览器实玩通过，真实大模型新规格仍待实测。详情见 [出题能力说明](docs/PUZZLE-MASTERY-2026-09-14.md)。
+
 线上站点：https://petrival.clear-oasis-2741.chatgpt.site/
 
 概念介绍：[/about.html](https://petrival.clear-oasis-2741.chatgpt.site/about.html)，从首页「认识 PetRival」进入。介绍页包括交互式挑战流程示意、推箱子与打拳、日常陪伴和比赛技能；图示用于解释概念，不是实际对局。
@@ -12,7 +14,7 @@
 - Sites：`npm run build` 生成 Worker、网页资源和既有 D1 迁移；发布遵循 [Sites 部署说明](docs/SITES.md)。
 - 验证：`npm test`、`npm run test:cloud`、`npm run check`。
 - 登录现状：支持 CloudBase 手机短信登录、游客存档绑定，以及 Sites 身份/游客 Cookie。邮箱验证码尚未接入；游客尚未绑定账号时仍依赖浏览器 Cookie。
-- 最新游戏整合：2026-09-14，GitHub `b995ae8`，Sites **v11 已发布成功**。推箱子与打拳共用宠物和存档，分别展示比赛记录与排名；比赛技能槽为 1 个，描述与代码合计最多 100 token。
+- 历史游戏整合基线：2026-09-14，GitHub `b995ae8`，Sites **v11 已发布成功**。推箱子与打拳共用宠物和存档，分别展示比赛记录与排名；比赛技能槽为 1 个，描述与代码合计最多 100 token。
 - 推箱子默认使用 `MODEL_PUSH_POLICY=feedback`；候选预演 `preview` 已实现但需显式开启。
 - 交付和验证：[整合记录](docs/claims/2026-09-14-multi-game-integration.md)、[拳台规则](docs/BOXING-MVP-2026-09-14.md)、[比赛技能](docs/COMPETITION-SKILL-2026-09-14.md)。本次合计 181 项自动测试通过，不等于生产真实模型全功能实玩验收。
 - 后续开发先阅读 [协作约定](CONTRIBUTING.md) 和 [任务规则](AGENTS.md)，从最新 `origin/main` 建立独立工作分支，不能继续修改旧交付副本。

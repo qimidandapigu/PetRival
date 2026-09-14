@@ -25,7 +25,7 @@ The Worker runtime regression also runs the bundled application under Miniflare/
 
 `node scripts/preview.mjs` serves the same Worker locally against temporary in-memory SQLite when the native Windows Worker emulator is unavailable. Use it only as a development preview. Production data remains in Sites D1.
 
-## Current release and development baseline
+## Historical v11 release and development baseline
 
 As verified on 2026-09-14, Sites v11 is published successfully at https://petrival.clear-oasis-2741.chatgpt.site/. The game integration is GitHub main `b995ae8088d5787516c5ce4874145747e74eaf80`; its Sites mirror source is `7faec498ef239f8a4b4f620cbf0db0a9b2979d3e`. Documentation-only follow-ups may advance GitHub main without changing this deployed runtime.
 
@@ -36,3 +36,5 @@ Daily check-in AI credit, ads and payment are not part of v11. Refer to [CONTRIB
 ## Puzzle mastery upgrade
 
 Preparation jobs now persist a server-validated size/box/difficulty snapshot in existing JSON data. Unlocks derive from verified unique pet clears; no migration is required. Both Worker and Node support 8–10 square boards and 2–4 boxes, including step observations and previews. Failed hard-board verification keeps the previous ready level. See [implementation and validation](PUZZLE-MASTERY-2026-09-14.md).
+
+Current release: **v14 succeeded** on 2026-09-14. Puzzle mastery runtime source is GitHub `aaaca5e2429ff1caab32b3548bb6271a5f26da89`, Sites source `1dc34b0beb7d8ce7066e8fac1e3afbfc50d633b9`; 50 runtime source files match. See the puzzle mastery validation record above. Later documentation-only commits do not change the deployed runtime.

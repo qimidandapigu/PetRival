@@ -38,7 +38,8 @@
 - 本地实际浏览器完成 10×10 / 4 箱样本（seed=0，困难），153 次人物移动、15 次最少推箱、解法 7 次换箱。人工验收用隔离测试宠物与模拟成长数据；未修改真实玩家。
 - 浏览器切换为 9×9 / 3 箱后备题成功，390px 手机视口无横向溢出，棋盘及方向按钮可见。
 - 构建成功；语法与基本密钥模式检查通过。
-- GitHub / Sites 发布状态由统一发布任务在成功后补记；此处不把本地验证当作已上线或真实模型成功。
+- 已合入并推送 GitHub main，功能提交 `aaaca5e2429ff1caab32b3548bb6271a5f26da89`。Sites v14 发布 succeeded；镜像源码 `1dc34b0beb7d8ce7066e8fac1e3afbfc50d633b9`，50 个运行源码文件与 main 内容一致。
+- 线上地址：https://petrival.clear-oasis-2741.chatgpt.site/ 。发布版本 `appgprj_6aa5986d663c8191a52b72648cec1c2a~appgver_575bcebf9da88191a103c294cc79a43c`，发布记录 `appgdep_6aa77b300a4c81919c35e40721346b5e`。本条由发布状态确认，不代表真实 DeepSeek 三箱/四箱已实玩验收。
 
 ## 研究参考
 
