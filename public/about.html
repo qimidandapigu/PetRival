@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#294b3d">
+  <meta name="description" content="PetRival 宠物擂台：在小院里认识你的 AI 宠物，带着它一起应战。提前备题，挑战即开。">
+  <title>认识 PetRival · 你的宠物，也是你的队友</title>
+  <link rel="icon" href="/pet-badge.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/about.css">
+  <script type="module" src="/about.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#content">跳到正文</a>
+  <header class="masthead wrap"><a class="brand" href="/" aria-label="PetRival 首页"><span class="brand-icon" aria-hidden="true">P<span>R</span></span><span>PETRIVAL<small>宠物擂台 · 晴风小院</small></span></a><nav aria-label="介绍页导航"><a href="#how">怎么玩</a><a class="nav-play" href="/">进入小院 <span aria-hidden="true">↗</span></a></nav></header>
+  <main id="content">
+    <section class="hero wrap">
+      <div class="hero-copy"><p class="eyebrow"><span class="dot"></span> A LITTLE COMPANION. A REAL TEAM.</p><h1>你的宠物，<br>也是你的<span class="underline">队友。</span></h1><p class="lead">平时，在小院里聊天、相伴。<br>上场，和它一起挑战别人的宠物。<br>你动手，它思考，各自走出自己的答案。</p><div class="actions"><a class="button" href="/">认识我的小伙伴 <span aria-hidden="true">↗</span></a><a class="text-link" href="#how">先看看怎么玩 <span aria-hidden="true">↓</span></a></div><p class="quiet">像素小世界 · AI 陪伴 · 人宠共同应战</p></div>
+      <div class="hero-art" aria-label="小汤圆和你一起迎接挑战的概念示意">
+        <div class="art-label"><span class="dot"></span> 今日搭档已就位 <span>01 / OUR TEAM</span></div>
+        <div class="speech">“这关，我想和你一起试试。”<span></span></div>
+        <div class="garden"><div class="sun"></div><div class="cloud cloud-one"></div><div class="cloud cloud-two"></div><div class="hill hill-one"></div><div class="hill hill-two"></div><div class="path"></div><span class="flower f1">✳</span><span class="flower f2">✳</span><span class="flower f3">✳</span><div class="hero-pet" data-pet="xiaotangyuan"></div><div class="rival-pet" data-pet="sprout"></div><div class="wood-sign">下一站：宠物擂台 →</div></div>
+        <div class="art-bottom"><div><span class="tiny-pet" data-pet="xiaotangyuan"></span><span><b>小汤圆</b><small>你的小伙伴，也是参赛选手</small></span></div><span class="tag">一起出发</span></div>
+      </div>
+    </section>
+    <section class="manifesto wrap"><p>一只宠物，两种相处。</p><h2>把日常过在一起，<br class="mobile-break">把挑战交给彼此。</h2><span>在生活里了解它，在比赛里看到它的选择。</span></section>
+    <section class="how wrap section" id="how">
+      <div class="section-title"><div><p class="eyebrow">01 / THE CHALLENGE LOOP</p><h2>提前备题，挑战即开。</h2></div><p>以推箱子为例：<br>宠物出考题，人和宠物一起应战。</p></div>
+      <div class="loop-layout"><div class="steps" role="group" aria-label="切换挑战流程示意">
+        <button class="step active" data-step="0" aria-pressed="true"><span class="step-number">01</span><span><strong>宠物提前备好一关</strong><small>每只宠物常备自己的守擂关卡，验证有解后再上场。</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+        <button class="step" data-step="1" aria-pressed="false"><span class="step-number">02</span><span><strong>你和宠物，一起应战</strong><small>挑战对方备好的题。你操作自己的棋盘，宠物独立做决定。</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+        <button class="step" data-step="2" aria-pressed="false"><span class="step-number">03</span><span><strong>这一局锁定，下一关备好</strong><small>比赛中准备新题；验证通过后用于后续对局，没准备好就继续用旧题。</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+      </div><div class="loop-demo"><div class="demo-top"><span>挑战流程示意</span><span class="tag" id="demo-tag">关卡已备好 ✓</span></div><div class="matchup"><div><span data-pet="xiaotangyuan"></span><b>你的宠物</b></div><span class="versus">VS</span><div><span data-pet="ghost"></span><b>对方宠物</b></div></div><div class="boards"><div class="board-wrap"><span id="left-label">你的守擂关</span><div class="mini-board" id="board-left" aria-hidden="true"></div></div><div class="board-wrap"><span id="right-label">对方的守擂关</span><div class="mini-board" id="board-right" aria-hidden="true"></div></div></div><div class="demo-caption" aria-live="polite"><strong id="demo-title">考题先准备，开局少等待。</strong><p id="demo-copy">读取已有的守擂关卡即可开始，不必等现场出题。</p></div></div></div>
+      <p class="footnote">省掉的是生成关卡的等待。进入挑战后，你可以直接操作，也可以观看宠物逐步闯关；宠物思考时，你仍能继续玩。</p>
+    </section>
+    <section class="games-band"><div class="wrap section"><div class="section-title"><div><p class="eyebrow">02 / TWO WAYS TO PLAY</p><h2>同一个搭档，不同的挑战。</h2></div><p>带着同一只宠物进入游戏，<br>每种游戏有自己的比赛记录和排名。</p></div><div class="game-cards"><article class="game-card"><div class="game-illustration puzzle-art" aria-hidden="true"><span class="floor-goal">✳</span><span class="big-crate">×</span><span class="game-pet" data-pet="xiaotangyuan"></span><span class="route-dots">······ →</span></div><div class="game-copy"><span class="label">逻辑与规划</span><h3>推箱子</h3><p>把箱子推上目标，找到通往答案的那条路。你和宠物挑战同一道题，各自操作、独立计分。</p><span class="game-detail">提前备题 / 双棋盘 / 一起解题</span></div></article><article class="game-card"><div class="game-illustration boxing-art" aria-hidden="true"><div class="rope r1"></div><div class="rope r2"></div><span class="fighter fighter-one" data-pet="xiaotangyuan"></span><span class="fight-star">✦</span><span class="fighter fighter-two" data-pet="fox"></span><div class="ring-floor"></div></div><div class="game-copy"><span class="label">时机与判断</span><h3>打拳</h3><p>前进、出拳、防御，把握攻守节奏。看宠物在擂台上独立对战，你也在自己的场次迎接挑战。</p><span class="game-detail">独立场次 / 即时操作 / 45 秒一场</span></div></article></div></div></section>
+    <section class="life wrap section"><div class="life-note"><p class="eyebrow">03 / BETWEEN THE MATCHES</p><h2>离开擂台，<br>日子照常可爱。</h2><p>回到晴风小院，和宠物说说今天。<br>给它画一张新面孔，把比赛里的想法写成技能。<br>下一次上场，仍然是你熟悉的那个伙伴。</p><a class="text-link" href="/#pet-world">回小院坐坐 <span aria-hidden="true">↗</span></a></div><div class="life-cards"><article><span class="life-icon" aria-hidden="true">✳</span><div><h3>一起过小日子</h3><p>通过自然对话互动，观察宠物在小院里的生活与状态。</p></div></article><article><span class="life-icon" aria-hidden="true">▧</span><div><h3>画出你的那一只</h3><p>改名、编辑像素外观，让伙伴有自己的样子。</p></div></article><article><span class="life-icon" aria-hidden="true">✦</span><div><h3>带上自己的小技巧</h3><p>一个比赛技能槽，描述与代码合计 100 token。开局固定技能版本，在比赛中检验想法。</p></div></article></div></section>
+    <section class="rules wrap"><div><p class="eyebrow">A FEW THINGS WE BELIEVE</p><h2>每一场，都认真对待。</h2></div><div class="rule-grid"><p><b>考题有答案</b><span>推箱子关卡先验证有解，再成为守擂关。</span></p><p><b>开局不换题</b><span>本局关卡锁定，新题留给下一场。</span></p><p><b>成绩看行动</b><span>按实际操作与结果计分，胜负影响宠物排名。</span></p><p><b>先练习，再较量</b><span>训练不影响正式排名，不必一开始就争输赢。</span></p></div></section>
+    <section class="closing wrap"><span class="closing-pet" data-pet="xiaotangyuan" aria-hidden="true"></span><p class="eyebrow">YOUR LITTLE WORLD IS WAITING</p><h2>下一场，和它一起。</h2><p>从认识一只小伙伴开始。</p><a class="button" href="/">走进 PetRival <span aria-hidden="true">↗</span></a></section>
+  </main>
+  <footer class="wrap"><a class="footer-brand" href="/">PETRIVAL</a><span>宠物出题 · 人宠应战 · 一起成长</span><span>早期试玩中</span></footer>
+</body>
+</html>

@@ -4,6 +4,8 @@
 
 线上站点：https://petrival.clear-oasis-2741.chatgpt.site/
 
+概念介绍：[/about.html](https://petrival.clear-oasis-2741.chatgpt.site/about.html)，从首页「认识 PetRival」进入。介绍页包括交互式挑战流程示意、推箱子与打拳、日常陪伴和比赛技能；图示用于解释概念，不是实际对局。
+
 本仓库根目录是统一源码，包含宠物小院、自然对话、等级与技能、像素编辑、推箱子和打拳，以及 Sites/D1 持久存档和积分流水。游戏通过对话影响宠物生活，不使用生活行为控制按钮。
 
 - 本地 Node 服务：`npm start`，存档在本地服务的 `data/`。
