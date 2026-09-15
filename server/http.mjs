@@ -1,3 +1,4 @@
+import { planJump, generateJump } from './jump-model.mjs';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -18,6 +19,8 @@ const files = {
   '/ai-comparison.mjs': ['public/ai-comparison.mjs', 'text/javascript; charset=utf-8'],
   '/ai-comparison.css': ['public/ai-comparison.css', 'text/css; charset=utf-8'],
   '/ai-comparison-data.json': ['public/ai-comparison-data.json', 'application/json'],
+  '/jump': ['public/jump.html', 'text/html; charset=utf-8'],
+  '/jump-world.mjs': ['public/jump-world.mjs', 'text/javascript; charset=utf-8'],
   '/jump.html': ['public/jump.html', 'text/html; charset=utf-8'],
   '/jump.css': ['public/jump.css', 'text/css; charset=utf-8'],
   '/jump.mjs': ['public/jump.mjs', 'text/javascript; charset=utf-8'],
@@ -65,7 +68,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
   const cookiePrefix = `${cookieName}=`;
   const jobs = new Jobs(2), brain = new PetBrain(jobs, env, brainOptions), store = new Store(dataDir), arena = new Arena(store, brain, { now });
   const boxing = new BoxingArena(arena, brain, { now });
-  const buckets = new Map();
+  const buckets = new Map(), jumpBusy = new Set();
   const rate = (key, max) => {
     const n = now(); let b = buckets.get(key);
     if (!b || n - b.start > 60000) { b = { start: n, count: 0 }; buckets.set(key, b); }
@@ -106,6 +109,16 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (!owner) throw new ApiError(401, '请先建立访客身份');
       if (path === '/api/state' && req.method === 'GET') return json(200, arena.view(owner));
       const input = req.method === 'POST' ? await body(req) : {};
+      if (['/api/jump/decision', '/api/jump/generate'].includes(path) && req.method === 'POST') {
+        const generation = path.endsWith('generate'), key = `jump:${owner}:${generation}`;
+        rate(key, generation ? 2 : 20);
+        if (jumpBusy.has(key)) throw new ApiError(429, '上一段模型请求还在处理中');
+        jumpBusy.add(key);
+        const abort = new AbortController(), stop = () => { if (!res.writableEnded) abort.abort(); };
+        res.on('close', stop);
+        try { return json(200, await (generation ? generateJump : planJump)(brain, input, { signal: abort.signal })); }
+        finally { jumpBusy.delete(key); res.off('close', stop); }
+      }
       if (path === '/api/boxing' && req.method === 'GET') return json(200, boxing.view(owner));
       if (path === '/api/boxing' && req.method === 'POST') { rate(`boxing:${owner}`, 6); return json(201, boxing.create(owner, input.opponentId)); }
       const boxingRoute = path.match(/^\/api\/boxing\/([\w-]+)(?:\/(start|input|surrender))?$/);

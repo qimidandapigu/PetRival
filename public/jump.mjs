@@ -1,94 +1,110 @@
-import { makeLevel, actor, stepActor, touchObjects, checkpoint, freshProgress, gapAhead, JumpMemory, DemonstrationRecorder, PetController, PHYSICS } from './jump-engine.mjs';
+import { starterLevel, actor, step, progress as freshProgress, validateLevel, validateActions } from './jump-world.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
-const $ = selector => document.querySelector(selector);
-const canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
-let levelIndex = 0, level = makeLevel(), human = actor(110), pet = actor(65), progress = freshProgress();
-let memory = new JumpMemory(), recorder = new DemonstrationRecorder(memory), controller = new PetController(memory);
-let storageKey = 'petrival.jump.v1.guest', petName = '小精灵', appearance = defaultAppearance('xiaotangyuan');
-let paused = false, ready = false, waiting = false, manualTeaching = false, humanCheckpoint = 80, petCheckpoint = 80, falls = 0, tick = 0, cameraX = 0;
-let previousTime = 0, accumulator = 0, flash = '', flashUntil = 0, lastMemorySize = -1;
+const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
+let level = starterLevel(), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress();
+let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', storageKey = 'petrival.jump.v2.guest';
+let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
+let queue = [], calls = 0, falls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
+let status = '你可以先练习。点击开始后，真实模型才会决定精灵的动作。', feedback = '', planStart, prepared = null;
 const keys = { left: false, right: false, jump: false }, keyboard = new Set(), pointers = new Map();
 const idle = () => { keyboard.clear(); pointers.clear(); keys.left = keys.right = keys.jump = false; };
 function syncKeys() { for (const key of Object.keys(keys)) keys[key] = keyboard.has(key) || [...pointers.values()].includes(key); }
-function announce(message, seconds = 4) { flash = message; flashUntil = tick + seconds * 60; }
-function readMemory() {
-  try { memory = new JumpMemory(JSON.parse(localStorage.getItem(storageKey) || 'null')); }
-  catch { memory = new JumpMemory(); $('#save-note').textContent = '本次无法读取本机笔记，可以继续练习；关闭页面后学习记录可能丢失。'; }
-  recorder = new DemonstrationRecorder(memory); controller = new PetController(memory); lastMemorySize = -1;
+async function api(path, data, signal) {
+  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal });
+  const result = await response.json(); if (!response.ok || result.error) throw new Error(result.error || '服务暂不可用'); return result;
 }
-function saveMemory() {
-  try { localStorage.setItem(storageKey, JSON.stringify(memory.json())); }
-  catch { $('#save-note').textContent = '浏览器未允许保存笔记。本次练习仍可继续，关闭后不会保留。'; }
-}
+function save() { try { localStorage.setItem(storageKey, JSON.stringify(samples)); } catch { $('#save-note').textContent = '本浏览器无法保存示范；关页后可能丢失。'; } }
 async function init() {
-  // Reuse an existing pet's cosmetic identity when one is accessible. No new
-  // adoption, cloud score mutation, or model call is made by this standalone game.
   try {
-    const response = await fetch('/api/state', { signal: AbortSignal.timeout(4000) });
-    if (response.ok) {
-      const state = await response.json();
-      if (state.mine) {
-        storageKey = `petrival.jump.v1.pet.${state.mine.id}`; petName = petDisplayName(state.mine.name);
-        try { appearance = validateAppearance(state.mine.appearance || defaultAppearance(state.mine.species)); } catch { /* safe default */ }
-      }
-    }
-  } catch { /* A guest can play locally without waiting for the account service. */ }
-  readMemory(); ready = true; update();
+    await api('/api/session', {}, AbortSignal.timeout(5000));
+    const response = await fetch('/api/state', { signal: AbortSignal.timeout(5000) });
+    if (response.ok) { const state = await response.json(); if (state.mine) {
+      storageKey = `petrival.jump.v2.pet.${state.mine.id}`; petName = petDisplayName(state.mine.name);
+      try { appearance = validateAppearance(state.mine.appearance || defaultAppearance(state.mine.species)); } catch {}
+    } }
+  } catch { status = '账号服务暂不可用；你仍能练习，模型开始时会提示连接结果。'; }
+  try { const stored = JSON.parse(localStorage.getItem(storageKey) || '[]'); samples = (Array.isArray(stored) ? stored : []).slice(-8).filter(d => { try { validateLevel(d.level); validateActions(d.actions); return d.from && d.to; } catch { return false; } }); } catch {}
+  ready = true; update();
 }
-function resetLevel(index = levelIndex) {
-  idle(); levelIndex = index; level = makeLevel(index); human = actor(110); pet = actor(65); progress = freshProgress();
-  humanCheckpoint = petCheckpoint = 80; falls = 0; waiting = manualTeaching = false; cameraX = 0;
-  recorder.pending = null; controller.reset(); $('#level').value = String(index); $('#finish').hidden = true;
-  announce('你先示范，小精灵会一起尝试。'); update();
+function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; }
+function resetLevel(next = level) {
+  cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
+  calls = falls = 0; feedback = ''; paused = false; $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
-function retryPet() { pet = actor(petCheckpoint); controller.reset(); waiting = manualTeaching = false; announce('它带着学到的动作，再试一次。'); }
+async function decide() {
+  if (!enabled || pending || paused || recording || progress.won || pet.dead) return;
+  if (calls >= 16) { enabled = false; status = '本轮已调用 16 次模型，暂停节省额度。可以示范后再继续。'; update(); return; }
+  pending = true; calls++; const current = epoch; abort = new AbortController(); planStart = { ...pet };
+  status = '模型正在观察关卡和你的示范；你可以继续移动。'; update();
+  try {
+    const result = await api('/api/jump/decision', { level, actor: pet, progress, demonstrations: samples.slice(-4), note: $('#teacher-note').value, feedback }, AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
+    if (current !== epoch) return;
+    if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
+    queue = validateActions(result.actions).map(a => ({ ...a }));
+    status = `${result.model}：${result.goal || '执行下一段动作'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范`;
+  } catch (e) { if (current === epoch) { enabled = false; status = `${e.name === 'TimeoutError' ? '模型等待超时' : e.message}；真人可继续，点击开始重试。`; } }
+  finally { if (current === epoch) { pending = false; update(); } }
+}
+function start() {
+  if (!ready) return; if (recording) finishDemo();
+  if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); }
+  if (progress.won) return;
+  cancel(); enabled = true; calls = 0; paused = false; $('#soundless-pause').textContent = '暂停'; decide(); canvas.focus();
+}
 function teach() {
-  human = actor(petCheckpoint); recorder.pending = null; waiting = true; manualTeaching = true;
-  $('#camera').value = 'human'; idle(); paused = false; $('#soundless-pause').textContent = '暂停';
-  announce('从它的落脚点出发：向右走，按住空格跳过小溪。安全落地后它会再试。', 12); canvas.focus();
+  cancel(); idle(); if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); }
+  human = { ...pet }; recording = { id: crypto.randomUUID(), level, from: { ...human }, actions: [], frames: 0 };
+  paused = false; $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
+  status = '从精灵当前位置示范，最多 4 秒操作；完成后点击“示范完成”。金币和机关仍只属于精灵。'; update(); canvas.focus();
+}
+function finishDemo() {
+  if (!recording) return;
+  if (recording.actions.length) {
+    const { frames, ...sample } = recording; sample.to = { ...human }; sample.outcome = human.dead ? 'fell' : 'survived';
+    samples.push(sample); samples = samples.slice(-8); save(); status = '已记录你的真实操作。下一次模型会参考它；这不代表已经学会。';
+  } else status = '这次没有操作，未保存示范。';
+  recording = null; update();
 }
 function advance() {
-  if (!ready || paused || progress.won) return;
-  tick++;
+  if (paused || !ready || progress.won) return; tick++;
   const input = { move: Number(keys.right) - Number(keys.left), jump: keys.jump };
-  recorder.before(human, input, level); stepActor(human, input, level);
-  const learned = recorder.after(human);
-  if (human.dead) {
-    human = actor(humanCheckpoint); recorder.pending = null;
-    announce('你回到了上一个落脚点。这次跌落不会写入它的笔记。');
-  } else if (human.grounded) humanCheckpoint = checkpoint(human, level);
-  if (learned) {
-    saveMemory(); announce('它记住了你刚才的起跳位置和按键时长！');
-    if (waiting) retryPet();
+  if (recording && (recording.frames || input.move || input.jump)) {
+    const last = recording.actions.at(-1);
+    if (last && last.move === input.move && last.jump === input.jump && last.frames < 90) last.frames++;
+    else if (recording.actions.length < 12) recording.actions.push({ ...input, frames: 1 });
+    else finishDemo();
+    if (recording) recording.frames++;
   }
-  if (!waiting) {
-    stepActor(pet, controller.action(pet, level), level); touchObjects(pet, 'pet', level, progress);
-    if (pet.dead) {
-      falls++; pet = actor(petCheckpoint); controller.reset(); waiting = true;
-      announce('它掉进小溪了，正在等你示范。你可以继续跳，也可以回到它身边。', 12);
-    } else if (pet.grounded) petCheckpoint = checkpoint(pet, level);
-    if (!progress.won && pet.x >= level.width - 15) {
-      waiting = true; announce('还有金币没拿到。点“本关重来”，试着调整示范的落点。', 12);
-    }
+  step(human, input, level, progress, 'human');
+  if (recording && (recording.frames >= 240 || human.dead)) finishDemo();
+  if (human.dead) human = actor(level.spawn);
+  if (enabled && !pending && !recording) {
+    if (queue.length) {
+      const action = queue[0]; step(pet, action, level, progress, 'pet'); if (--action.frames <= 0) queue.shift();
+      if (pet.dead) { falls++; enabled = false; queue = []; status = '精灵跌落了。回去示范，或点击开始从出生点重试。'; }
+      if (!queue.length) feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
+    } else decide();
   }
-  if (progress.won) { $('#finish').hidden = false; idle(); }
-  if (tick % 6 === 0 || learned || progress.won) update();
+  if (progress.won) { enabled = false; status = '小精灵亲自收齐金币、取钥匙、开门并到达终点。'; idle(); }
+  if (tick % 6 === 0) update();
+}
+async function generate() {
+  $('#generate').disabled = true; $('#generation-status').textContent = '大模型正在备题，随后验证完整通关路线。你可以继续玩当前关。';
+  try {
+    const result = await api('/api/jump/generate', { intent: $('#level-intent').value }, AbortSignal.timeout(260000));
+    if (result.source !== 'model' || !result.verification?.verified) throw new Error('新关没有验证标记');
+    prepared = { ...result, level: validateLevel(result.level) }; $('#use-level').hidden = false;
+    $('#generation-status').textContent = `${result.model} 已生成「${prepared.level.title}」，完整物理验证通过。点击进入新关。`;
+  } catch (e) { $('#generation-status').textContent = `${e.message}。当前关卡保留。`; }
+  finally { $('#generate').disabled = false; }
 }
 function update() {
-  $('#objective').textContent = `小精灵收集 ${progress.coins.length} / ${level.coins.length} 枚金币 · ${progress.switchOn ? '机关已开' : '机关未开'}`;
-  $('#attempts').textContent = `小精灵跌落 ${falls} 次`;
-  $('#pet-status').textContent = !ready ? '正在打开学习笔记，你马上就能开始。' : paused ? '已暂停，点击“继续”回来练习。' :
-    progress.won ? `${petName}自己拿齐了金币，打开机关，到达终点。` : tick < flashUntil ? flash : waiting ?
-    (manualTeaching ? '它在看你的示范。成功落地后，就轮到它。' : '它还没通过这段，等你回来教。') : controller.mode;
-  if (lastMemorySize !== memory.demonstrations) {
-    lastMemorySize = memory.demonstrations;
-    $('#lesson-count').textContent = `${memory.clips.length} 次示范`;
-    $('#learning-note').textContent = memory.clips.length ? '这些跳法来自你的成功示范。换个位置也能试；遇到更宽的小溪，需要再教。' : '还没有成功跨坑的示范。平地乱跳和掉进水里的动作不会记入。';
-    const widths = [...new Set(memory.clips.map(c => c.width))];
-    $('#lessons').replaceChildren(...widths.map(width => {
-      const tag = document.createElement('span'); tag.className = 'lesson'; tag.textContent = `${width <= 72 ? '窄' : width <= 92 ? '中等' : '宽'}小溪 · ${memory.clips.filter(c => c.width === width).length} 次示范`; return tag;
-    }));
-  }
+  $('#level-title').textContent = level.title;
+  $('#objective').textContent = `精灵金币 ${progress.coins.length}/${level.coins.length} · ${progress.key ? '已取钥匙' : '先取钥匙'} · ${progress.switchOn ? '门已开' : '回头开机关'}`;
+  $('#pet-status').textContent = paused ? '已暂停。' : status; $('#attempts').textContent = `模型 ${calls}/16 次 · 跌落 ${falls} 次`;
+  $('#lesson-count').textContent = `${samples.length} 次示范`; $('#learning-note').textContent = recording ? '正在录制你的真实按键。' : '最近 4 次示范会作为上下文送给模型，未修改模型权重。';
+  $('#lessons').textContent = samples.slice(-4).map((s, i) => `${i + 1}. ${s.level.title} · ${s.outcome === 'fell' ? '跌落反例' : '操作示范'}`).join('　');
+  $('#finish-demo').hidden = !recording; $('#finish').hidden = !progress.won; $('#retry-pet').disabled = !ready || pending;
 }
 function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
 function label(text, x, y, color = '#42624e', size = 14) { ctx.fillStyle = color; ctx.font = `600 ${size}px system-ui`; ctx.textAlign = 'center'; ctx.fillText(text, x, y); }
@@ -96,7 +112,7 @@ function drawActor(a, isPet) {
   const x = a.x - cameraX, y = a.y;
   if (x < -50 || x > canvas.width + 50) return;
   ctx.save(); ctx.globalAlpha = isPet ? 1 : .78;
-  rect(x - 14, Math.min(y, PHYSICS.floor) + 1, 28, 4, '#25493725');
+  rect(x - 14, Math.min(y, 400) + 1, 28, 4, '#25493725');
   if (isPet) {
     appearance.pixels.forEach((color, i) => { if (color) rect(x - 20 + i % 16 * 2.5, y - 39 + Math.floor(i / 16) * 2.5, 3, 3, color); });
   } else {
@@ -107,52 +123,23 @@ function drawActor(a, isPet) {
   label(isPet ? petName : '你', x, y - (isPet ? 48 : 51), isPet ? '#39683c' : '#396c88', 13); ctx.restore();
 }
 function draw() {
-  const width = Math.max(500, Math.round(canvas.clientWidth));
-  if (canvas.width !== width) canvas.width = width;
+  const width = Math.max(500, Math.round(canvas.clientWidth)); if (canvas.width !== width) canvas.width = width;
   const target = $('#camera').value === 'pet' ? pet : human;
-  const desired = Math.max(0, Math.min(level.width - width + 30, target.x - width * .42));
-  cameraX += (desired - cameraX) * .12;
-  const w = canvas.width, h = canvas.height;
-  rect(0, 0, w, h, '#dceee3');
-  // Original pixel scenery, sharing the courtyard palette.
-  for (let i = 0; i < 7; i++) {
-    const x = i * 240 + 40 - cameraX * .23;
-    rect(x, 97 + i % 3 * 16, 76, 12, '#f6f9e8'); rect(x + 17, 85 + i % 3 * 16, 40, 24, '#f6f9e8');
-  }
-  for (let i = -1; i < 10; i++) {
-    const x = i * 190 - cameraX * .4;
-    rect(x, 245, 170, 85, '#c5dcbd'); rect(x + 25, 217, 117, 35, '#c5dcbd'); rect(x + 53, 192, 60, 30, '#c5dcbd');
-  }
-  rect(0, 355, w, 115, '#7dbdb7');
-  for (let i = 0; i < 30; i++) rect(i * 63 - cameraX % 63 + (tick % 70) * .15, 380 + i % 4 * 14, 24, 3, '#c2e4ce');
-  const segments = []; let start = 0;
-  for (const [s, e] of level.gaps) { segments.push([start, s]); start = e; }
-  segments.push([start, level.width]);
-  for (const [s, e] of segments) {
-    rect(s - cameraX, 330, e - s, 140, '#bbad82'); rect(s - cameraX, 330, e - s, 12, '#63915c'); rect(s - cameraX, 342, e - s, 6, '#98b574');
-    for (let x = s + 12; x < e; x += 40) { rect(x - cameraX, 362, 14, 6, '#9f916c'); rect(x + 15 - cameraX, 408, 12, 5, '#a69870'); }
-  }
-  for (const [s, e] of level.gaps) {
-    label('小溪', (s + e) / 2 - cameraX, 421, '#376e69', 12);
-    // A hint to the human, never consumed by the pet controller.
-    label('在岸边起跳', s - 65 - cameraX, 277, '#698650', 12);
-    rect(s - 49 - cameraX, 316, 20, 3, '#e7da96');
-  }
-  level.coins.forEach((coin, i) => {
-    if (progress.coins.includes(i)) return;
-    const x = coin.x - cameraX;
-    rect(x - 7, coin.y - 9, 14, 18, '#bd853b'); rect(x - 5, coin.y - 10, 10, 17, '#f4cf62'); rect(x - 1, coin.y - 6, 3, 10, '#ffecac');
-  });
-  const sx = level.switchX - cameraX, gx = level.goalX - cameraX;
-  rect(sx - 16, 322, 32, 8, '#4b6860'); rect(sx - 11, progress.switchOn ? 322 : 316, 22, progress.switchOn ? 4 : 10, progress.switchOn ? '#83bd71' : '#e5ba63');
-  label(progress.switchOn ? '机关已开' : '精灵踩下机关', sx, 296, '#4f6a4a', 12);
-  rect(gx - 4, 231, 8, 99, '#557156'); rect(gx + 4, 234, 37, 24, progress.switchOn ? '#eccb71' : '#a6b6a0');
-  label('终点', gx + 5, 215);
-  drawActor(human, false); drawActor(pet, true);
-  // Keep a separated companion findable in long levels.
-  const other = target === human ? pet : human;
-  if (other.x - cameraX < 15 || other.x - cameraX > w - 15) label(`${other.x < cameraX ? '← ' : ''}${target === human ? '小精灵' : '你'}${other.x > cameraX + w ? ' →' : ''}`, other.x < cameraX ? 45 : w - 48, 185, '#42654c', 14);
-  if (paused) { rect(0, 0, w, h, '#eef4e299'); label('暂停练习', w / 2, 215, '#2f5545', 25); }
+  cameraX += (Math.max(0, Math.min(Math.max(0, level.width - width + 30), target.x - width * .42)) - cameraX) * .12;
+  rect(0, 0, width, 470, '#dceee3');
+  for (let i = 0; i < 9; i++) { const x = i * 190 - cameraX * .3; rect(x, 285, 170, 110, '#c5dcbd'); rect(x + 30, 240, 100, 50, '#c5dcbd'); rect(x + 20, 75 + i % 3 * 20, 75, 15, '#f6f9e8'); }
+  rect(0, 415, width, 55, '#7dbdb7');
+  for (const p of level.platforms) { rect(p.x - cameraX, p.y, p.w, p.y === 400 ? 70 : 20, '#bbad82'); rect(p.x - cameraX, p.y, p.w, 8, '#63915c'); }
+  level.coins.forEach((coin, i) => { if (!progress.coins.includes(i)) { rect(coin.x - cameraX - 6, coin.y - 8, 12, 16, '#f4cf62'); rect(coin.x - cameraX - 1, coin.y - 5, 3, 10, '#bd853b'); } });
+  if (!progress.key) { label('⚿', level.key.x - cameraX, level.key.y + 5, '#ad752e', 26); label('钥匙', level.key.x - cameraX, level.key.y - 25, '#6c7446', 12); }
+  const sx = level.switch.x - cameraX; rect(sx - 14, level.switch.y + 3, 28, 9, progress.switchOn ? '#71ad63' : '#d7a152');
+  label(progress.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
+  if (!progress.switchOn) { rect(level.door.x - cameraX - 8, level.door.y, 16, level.door.h, '#8c7966'); label('锁门', level.door.x - cameraX, level.door.y - 12, '#655444', 12); }
+  rect(level.goal.x - cameraX - 3, level.goal.y - 70, 6, 70, '#557156'); rect(level.goal.x - cameraX + 3, level.goal.y - 70, 30, 20, '#eccb71');
+  label('终点', level.goal.x - cameraX, level.goal.y - 82);
+  drawActor(human, false); if (!pet.dead) drawActor(pet, true);
+  if (pending) label('模型观察中 · 你可以继续', width / 2, 30, '#3c6450', 15);
+  if (paused) { rect(0, 0, width, 470, '#eef4e299'); label('暂停练习', width / 2, 215, '#2f5545', 25); }
 }
 function frame(time) {
   const elapsed = Math.min((time - previousTime) / 1000 || 0, .1); previousTime = time;
@@ -173,13 +160,12 @@ for (const button of document.querySelectorAll('[data-key]')) {
   for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(eventName, event => { pointers.delete(event.pointerId); syncKeys(); });
 }
 $('#teach').addEventListener('click', teach);
-$('#retry-pet').addEventListener('click', () => { retryPet(); canvas.focus(); update(); });
+$('#finish-demo').addEventListener('click', () => { finishDemo(); start(); });
+$('#retry-pet').addEventListener('click', start);
 $('#restart').addEventListener('click', () => { resetLevel(); canvas.focus(); });
-$('#level').addEventListener('change', event => { resetLevel(Number(event.target.value)); canvas.focus(); });
-$('#next-level').addEventListener('click', () => { resetLevel((levelIndex + 1) % 3); canvas.focus(); });
 $('#soundless-pause').addEventListener('click', () => { paused = !paused; idle(); $('#soundless-pause').textContent = paused ? '继续' : '暂停'; update(); canvas.focus(); });
-$('#forget').addEventListener('click', () => {
-  if (!confirm('只清空当前这只精灵在本浏览器的跳跃示范笔记？宠物其他存档不会改变。')) return;
-  memory = new JumpMemory(); recorder = new DemonstrationRecorder(memory); controller = new PetController(memory); saveMemory(); lastMemorySize = -1; resetLevel();
-});
+$('#generate').addEventListener('click', generate);
+$('#use-level').addEventListener('click', () => { if (prepared) { resetLevel(prepared.level); $('#level-source').textContent = `大模型生成 · ${prepared.model} · 物理验证通过`; prepared = null; $('#use-level').hidden = true; } });
+$('#next-level').addEventListener('click', () => { resetLevel(); $('#level-intent').focus(); });
+$('#forget').addEventListener('click', () => { cancel(); samples = []; recording = null; save(); status = '本浏览器中这只精灵的跳跃示范已清空。'; update(); });
 init(); requestAnimationFrame(frame);

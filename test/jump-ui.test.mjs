@@ -1,44 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import * as engine from '../public/jump-engine.mjs';
-import { defaultAppearance, validateAppearance, petDisplayName } from '../shared/pet.mjs';
-
-test('keyboard demonstration updates the local notebook and resumes the waiting pet to completion', async () => {
-  const nodes = new Map(), events = new Map(), saved = new Map();
-  function node(id) {
-    if (!nodes.has(id)) nodes.set(id, { textContent: '', value: id === '#camera' ? 'human' : '0', hidden: true,
-      addEventListener(type, handler) { this[type] = handler; }, focus() {}, closest() { return null; },
-      replaceChildren() {}, getContext() { return {}; }, dataset: {}, clientWidth: 900 });
-    return nodes.get(id);
-  }
-  const context = vm.createContext({ ...engine, defaultAppearance, validateAppearance, petDisplayName,
-    document: { querySelector: node, querySelectorAll: () => [], addEventListener: (type, handler) => events.set(type, handler), createElement: () => ({}) },
-    window: { addEventListener() {} }, requestAnimationFrame() {}, AbortSignal,
-    localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) },
-    fetch: async () => ({ ok: true, json: async () => ({ mine: { id: 'test-pet', name: '小精灵', species: 'xiaotangyuan' } }) }),
-  });
-  const source = readFileSync(new URL('../public/jump.mjs', import.meta.url), 'utf8').replace(/^import .*$/gm, '');
-  vm.runInContext(source + '\nthis.fixture = { advance, teach, resetLevel, get: () => ({human,pet,waiting,memory,progress,humanCheckpoint,petCheckpoint,paused}) };', context);
-  await new Promise(resolve => setImmediate(resolve));
-  const api = context.fixture, key = (type, code) => events.get(type)({ code, target: node('#jump-canvas'), preventDefault() {} });
-  for (let i = 0; i < 200; i++) api.advance();
-  assert.equal(api.get().waiting, true);
-  assert.equal(api.get().memory.clips.length, 0);
-  api.teach(); key('keydown', 'ArrowRight');
-  while (api.get().human.x < 336) api.advance();
-  key('keydown', 'Space');
-  for (let i = 0; i < 50; i++) api.advance();
-  key('keyup', 'Space'); key('keyup', 'ArrowRight');
-  assert.equal(api.get().memory.clips.length, 1);
-  assert.equal(api.get().waiting, false);
-  assert.equal(JSON.parse(saved.get('petrival.jump.v1.pet.test-pet')).clips.length, 1);
-  for (let i = 0; i < 400; i++) api.advance();
-  assert.equal(api.get().progress.won, true);
-  assert.equal(node('#finish').hidden, false);
-  api.resetLevel(1);
-  assert.equal(api.get().memory.clips.length, 1, 'changing level keeps learned demonstrations');
-  for (let i = 0; i < 600; i++) api.advance();
-  assert.equal(api.get().progress.won, true);
+import * as engine from '../public/jump-world.mjs';
+import {defaultAppearance,validateAppearance,petDisplayName} from '../shared/pet.mjs';
+async function fixture(){
+ const nodes=new Map(),events=new Map(),saved=new Map(),requests=[];let resolveDecision;
+ const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#camera'?'human':'',hidden:true,textContent:'',addEventListener(t,h){this[t]=h;},focus(){},closest(){return null;},getContext(){return {};},clientWidth:900});return nodes.get(id);};
+ const context=vm.createContext({...engine,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
+ document:{querySelector:node,querySelectorAll:()=>[],addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
+ localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},fetch:async(path,opts)=>{
+ if(path==='/api/jump/decision'){requests.push(JSON.parse(opts.body));return new Promise(r=>{resolveDecision=data=>r({ok:true,json:async()=>data});});}
+ return {ok:true,json:async()=>({mine:{id:'p',name:'小精灵',species:'xiaotangyuan'}})};
+ }});
+ const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,resetLevel,get:()=>({human,pet,progress,samples,pending,queue,enabled})};',context);
+ await new Promise(r=>setImmediate(r));return {api:context.fixture,node,saved,requests,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}}),resolve:data=>resolveDecision(data)};
+}
+const result={method:'model',model:'fixture',latencyMs:10,actions:[{move:1,jump:false,frames:10}],goal:'走向高台',usedDemonstrations:[],demonstrationsProvided:0};
+test('human remains movable during model wait and reset discards stale actions',async()=>{
+ const f=await fixture();f.api.start();assert.equal(f.api.get().pending,true);f.key('keydown','ArrowRight');for(let i=0;i<20;i++)f.api.advance();
+ assert.ok(f.api.get().human.x>100);assert.equal(f.api.get().pet.x,64);assert.equal(f.api.get().progress.coins.length,0);
+ f.api.resetLevel();f.resolve(result);await new Promise(r=>setImmediate(r));assert.equal(f.api.get().queue.length,0);assert.equal(f.api.get().enabled,false);
+});
+test('recorded human actions are sent to model and only returned actions drive pet',async()=>{
+ const f=await fixture();f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<20;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
+ assert.equal(f.api.get().samples.length,1);assert.equal(f.api.get().pet.x,64);assert.equal(JSON.parse(f.saved.get('petrival.jump.v2.pet.p'))[0].actions[0].frames,20);
+ f.api.start();assert.equal(f.requests[0].demonstrations.length,1);f.resolve(result);await new Promise(r=>setImmediate(r));
+ for(let i=0;i<10;i++)f.api.advance();assert.ok(Math.abs(f.api.get().pet.x-96)<.001);
 });

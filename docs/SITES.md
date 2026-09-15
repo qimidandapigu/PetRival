@@ -46,3 +46,7 @@ Sites v15 succeeded on 2026-09-14. GitHub runtime source: `f2be068`; Sites sourc
 ## Jump class release
 
 Sites v16 succeeded on 2026-09-14: `/jump.html` is linked from the game library. GitHub source `779ecee`; Sites source `6d7216a5b54d35bf1b85b909511013bfc7c537bd`. 63 runtime source files matched. Deployment `appgdep_6aa7f132c9788191aca25cab41d0903e` reported succeeded. 162 Node tests and 39 cloud tests passed. This game uses browser-local demonstration memory; no D1 migration, model calls, account rewards or cloud-learning synchronization. See [learning and verification boundaries](JUMP-CLASS-2026-09-14.md).
+
+## Model-driven jump update
+
+The current source adds real-model jump decisions and model-generated platform geometry with replay verification. Existing session identities are reused; no schema migration. Demonstrations remain browser-local and unranked. The previous v16 description is historical. See [behavior and evidence](JUMP-MODEL-2026-09-15.md) for source versus deployment status.
