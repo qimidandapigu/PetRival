@@ -1,4 +1,5 @@
-import { starterLevel, actor, step, progress as freshProgress, validateLevel, validateActions } from './jump-world.mjs';
+import { starterLevel, actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
+import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES } from './jump-lab.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
 let level = starterLevel(), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress();
@@ -6,6 +7,12 @@ let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', stora
 let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
 let queue = [], calls = 0, falls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
 let status = '你可以先练习。点击开始后，真实模型才会决定精灵的动作。', feedback = '', planStart, prepared = null;
+// Blank lab: this world's channel roles and physics exist only in `lab.world`, and `mode`
+// decides whether the model is playing a designed level or learning from scratch.
+let mode = 'classic', labStorageKey = 'petrival.jump.lab.v1.guest';
+let lab = { index: 1, seed: 0, world: null, notebook: [], traces: [], prior: null, priorScore: null, answer: null,
+  pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [] };
+const physics = () => mode === 'lab' && lab.world ? lab.world.physics : PHYSICS;
 const keys = { left: false, right: false, jump: false }, keyboard = new Set(), pointers = new Map();
 const idle = () => { keyboard.clear(); pointers.clear(); keys.left = keys.right = keys.jump = false; };
 function syncKeys() { for (const key of Object.keys(keys)) keys[key] = keyboard.has(key) || [...pointers.values()].includes(key); }
@@ -14,6 +21,18 @@ async function api(path, data, signal) {
   const result = await response.json(); if (!response.ok || result.error) throw new Error(result.error || '服务暂不可用'); return result;
 }
 function save() { try { localStorage.setItem(storageKey, JSON.stringify(samples)); } catch { $('#save-note').textContent = '本浏览器无法保存示范；关页后可能丢失。'; } }
+function saveLab() {
+  try { localStorage.setItem(labStorageKey, JSON.stringify({ index: lab.index, seed: lab.seed, notebook: summarizeNotebook(lab.notebook),
+    traces: lab.traces.slice(-MAX_TRACES), accuracy: lab.accuracy, stats: lab.stats.slice(-8), calls: lab.calls })); }
+  catch { $('#save-note').textContent = '本浏览器无法保存机制手册；关页后可能丢失。'; }
+}
+function loadLab(stored) {
+  if (!stored || !Number.isInteger(stored.seed) || stored.seed <= 0) return;
+  lab = { ...lab, index: Number.isInteger(stored.index) && stored.index > 0 ? stored.index : 1, seed: stored.seed, world: labWorld(stored.seed),
+    notebook: summarizeNotebook(stored.notebook), traces: (Array.isArray(stored.traces) ? stored.traces : []).slice(-MAX_TRACES),
+    stats: Array.isArray(stored.stats) ? stored.stats.slice(-8) : [], calls: Number.isInteger(stored.calls) ? stored.calls : 0,
+    accuracy: stored.accuracy && Number.isInteger(stored.accuracy.hits) && Number.isInteger(stored.accuracy.total) ? stored.accuracy : { hits: 0, total: 0 } };
+}
 async function init() {
   try {
     await api('/api/session', {}, AbortSignal.timeout(5000));
@@ -23,7 +42,9 @@ async function init() {
       try { appearance = validateAppearance(state.mine.appearance || defaultAppearance(state.mine.species)); } catch {}
     } }
   } catch { status = '账号服务暂不可用；你仍能练习，模型开始时会提示连接结果。'; }
+  labStorageKey = storageKey.replace('jump.v2', 'jump.lab.v1');
   try { const stored = JSON.parse(localStorage.getItem(storageKey) || '[]'); samples = (Array.isArray(stored) ? stored : []).slice(-8).filter(d => { try { validateLevel(d.level); validateActions(d.actions); return d.from && d.to; } catch { return false; } }); } catch {}
+  try { loadLab(JSON.parse(localStorage.getItem(labStorageKey) || 'null')); } catch {}
   ready = true; update();
 }
 function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; }
@@ -34,14 +55,21 @@ function resetLevel(next = level) {
 async function decide() {
   if (!enabled || pending || paused || recording || progress.won || pet.dead) return;
   if (calls >= 16) { enabled = false; status = '本轮已调用 16 次模型，暂停节省额度。可以示范后再继续。'; update(); return; }
+  const learning = mode === 'lab';
   pending = true; calls++; const current = epoch; abort = new AbortController(); planStart = { ...pet };
-  status = '模型正在观察关卡和你的示范；你可以继续移动。'; update();
+  status = learning ? '模型正在看这个世界的实验记录和它的机制手册；你可以继续移动。' : '模型正在观察关卡和你的示范；你可以继续移动。'; update();
   try {
-    const result = await api('/api/jump/decision', { level, actor: pet, progress, demonstrations: samples.slice(-4), note: $('#teacher-note').value, feedback }, AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
+    const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
+      learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
+        : { level, actor: pet, progress, demonstrations: samples.slice(-4), note: $('#teacher-note').value, feedback },
+      AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
-    queue = validateActions(result.actions).map(a => ({ ...a }));
-    status = `${result.model}：${result.goal || '执行下一段动作'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范`;
+    queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions)).map(a => ({ ...a }));
+    if (learning) { lab.calls++; lab.pending = result.prediction ? { prediction: result.prediction, start: { ...pet } } : null; saveLab(); update(); }
+    status = learning
+      ? `${result.model}：${result.goal || '试探这个世界'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）· ${result.prediction ? '已先下预测' : '这次没给预测'}`
+      : `${result.model}：${result.goal || '执行下一段动作'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范`;
   } catch (e) { if (current === epoch) { enabled = false; status = `${e.name === 'TimeoutError' ? '模型等待超时' : e.message}；真人可继续，点击开始重试。`; } }
   finally { if (current === epoch) { pending = false; update(); } }
 }
@@ -59,11 +87,28 @@ function teach() {
 }
 function finishDemo() {
   if (!recording) return;
-  if (recording.actions.length) {
+  if (recording.actions.length && mode === 'lab' && lab.world) {
+    const segments = [];
+    for (const action of recording.actions) {
+      const mask = roleInputToChannels(lab.world, action), last = segments.at(-1);
+      if (last && last.a === mask.a && last.b === mask.b && last.c === mask.c && last.frames + action.frames <= 90) last.frames += action.frames;
+      else segments.push({ ...mask, frames: action.frames });
+    }
+    lab.traces = [...lab.traces, runExperiment(lab.world, { id: `human-${Date.now().toString(36)}`, segments, origin: 'human',
+      start: recording.from, note: '你亲手做的一次示范' })].slice(-MAX_TRACES);
+    saveLab(); status = `已把你的 ${recording.frames} 帧操作记成一次带标签的实验；它还得自己归纳出结论。`;
+  } else if (recording.actions.length) {
     const { frames, ...sample } = recording; sample.to = { ...human }; sample.outcome = human.dead ? 'fell' : 'survived';
     samples.push(sample); samples = samples.slice(-8); save(); status = '已记录你的真实操作。下一次模型会参考它；这不代表已经学会。';
   } else status = '这次没有操作，未保存示范。';
   recording = null; update();
+}
+function scoreLabPrediction() {
+  if (mode !== 'lab' || !lab.pending) return;
+  const scored = scorePrediction(lab.pending.prediction, lab.pending.start, pet, pet.dead);
+  lab.accuracy = { hits: lab.accuracy.hits + scored.hits, total: lab.accuracy.total + scored.total };
+  lab.lastScore = scored; lab.pending = null; saveLab();
+  status = `${status} · 预测命中 ${scored.hits}/${scored.total}${scored.missed.length ? `（错在 ${scored.missed.join('、')}）` : ''}，累计 ${lab.accuracy.hits}/${lab.accuracy.total}`;
 }
 function advance() {
   if (paused || !ready || progress.won) return; tick++;
@@ -75,14 +120,18 @@ function advance() {
     else finishDemo();
     if (recording) recording.frames++;
   }
-  step(human, input, level, progress, 'human');
+  step(human, input, level, progress, 'human', physics());
   if (recording && (recording.frames >= 240 || human.dead)) finishDemo();
   if (human.dead) human = actor(level.spawn);
   if (enabled && !pending && !recording) {
     if (queue.length) {
-      const action = queue[0]; step(pet, action, level, progress, 'pet'); if (--action.frames <= 0) queue.shift();
+      const action = queue[0]; step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics());
+      if (--action.frames <= 0) queue.shift();
       if (pet.dead) { falls++; enabled = false; queue = []; status = '精灵跌落了。回去示范，或点击开始从出生点重试。'; }
-      if (!queue.length) feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
+      if (!queue.length) {
+        scoreLabPrediction();
+        feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
+      }
     } else decide();
   }
   if (progress.won) { enabled = false; status = '小精灵亲自收齐金币、取钥匙、开门并到达终点。'; idle(); }
@@ -98,6 +147,86 @@ async function generate() {
   } catch (e) { $('#generation-status').textContent = `${e.message}。当前关卡保留。`; }
   finally { $('#generate').disabled = false; }
 }
+// ---- 空白实验室：先验探针、免费实验台、机制归纳、揭晓真相 ----
+const roleName = role => role === 'left' ? '左' : role === 'right' ? '右' : role === 'jump' ? '跳' : '未知';
+const labWorldName = () => `世界 ${lab.index}`;
+function nextWorld({ first = false } = {}) {
+  const carried = lab.notebook.filter(n => n.state === '确认').map(n => ({ ...n, id: `carry-${n.id}`, state: '猜想', evidence: [], confidence: .5 }));
+  const stats = first || !lab.world ? lab.stats : [...lab.stats, { index: lab.index, experiments: lab.traces.length,
+    confirmed: lab.notebook.filter(n => n.state === '确认').length, accuracy: { ...lab.accuracy }, calls: lab.calls }];
+  const seed = Math.floor(Math.random() * 99999) + 1;
+  lab = { index: first ? 1 : lab.index + 1, seed, world: labWorld(seed), notebook: carried, traces: [], prior: null, priorScore: null,
+    answer: null, pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: stats.slice(-8), calls: 0, adjusted: [] };
+  mode = 'lab'; cancel(); recording = null; idle();
+  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
+  calls = falls = 0; feedback = ''; paused = false; $('#soundless-pause').textContent = '暂停';
+  $('#level-source').textContent = `空白实验室 · ${labWorldName()} · 机制保密`;
+  status = carried.length ? `换到${labWorldName()}：上一个世界确认过的 ${carried.length} 条结论自动变成待复核，它得在这里重新验证。`
+    : `${labWorldName()}：一个小精灵，三个无名通道，它对这个世界一无所知。`;
+  $('#lab-enter').hidden = true; $('#back-classic').hidden = false; saveLab(); update();
+}
+function backToClassic() {
+  mode = 'classic'; cancel(); recording = null;
+  resetLevel(starterLevel()); $('#level-source').textContent = '内置示范关 · 物理验证通过';
+  $('#lab-enter').hidden = false; $('#back-classic').hidden = true; status = '回到示范课：这个世界的物理和目标是明说的。'; update();
+}
+async function labPrior() {
+  if (mode !== 'lab' || pending) return;
+  $('#lab-prior').disabled = true;
+  try {
+    const result = await api('/api/jump/lab/prior', {}, AbortSignal.timeout(60000));
+    lab.calls++; lab.prior = result.guesses; lab.priorScore = scorePriorGuesses(result.guesses, lab.world);
+    status = `先验猜测 ${lab.priorScore.hits}/${lab.priorScore.total} 命中：它一次实验都没做，全靠大模型自己的常识。`;
+    saveLab(); update();
+  } catch (e) { status = e.message; update(); }
+  finally { $('#lab-prior').disabled = false; }
+}
+function labBattery() {
+  if (mode !== 'lab') return;
+  const humanTraces = lab.traces.filter(t => t.origin === 'human');
+  lab.traces = [...humanTraces, ...experimentBattery(lab.world)].slice(-MAX_TRACES);
+  status = `本地跑完 ${lab.traces.length} 次实验，没有花模型调用：每个通道单独按一下、按住，再两两组合。`;
+  saveLab(); update();
+}
+async function labInduce() {
+  if (mode !== 'lab' || pending) return;
+  if (!lab.traces.length) { status = '先跑一次实验台，或者亲手示范一次，再让它归纳。'; return update(); }
+  $('#lab-induce').disabled = true; pending = true;
+  try {
+    const result = await api('/api/jump/lab/induce', { world: { name: labWorldName(), level }, traces: lab.traces.slice(-10), notebook: lab.notebook }, AbortSignal.timeout(120000));
+    lab.calls++; lab.notebook = summarizeNotebook(result.notebook); lab.adjusted = result.adjusted || []; lab.nextExperiment = result.nextExperiment || null;
+    status = `${result.model} 归纳出 ${result.learned} 条新结论，其中确认 ${result.confirmed} 条${lab.adjusted.length ? `；${lab.adjusted.length} 条状态被按证据改写（${lab.adjusted[0]}）` : ''}。`;
+    saveLab();
+  } catch (e) { status = e.message; }
+  finally { $('#lab-induce').disabled = false; pending = false; update(); }
+}
+function labReveal() {
+  if (mode !== 'lab' || !lab.world) return;
+  lab.answer = hiddenTruth(lab.world);
+  status = '这是这个世界的真相：对照一下它手册里写的，以及你自己按下去时的感觉。';
+  update();
+}
+function updateLab() {
+  if (!lab.world) {
+    $('#lab-world').textContent = '还没开始';
+    $('#lab-notebook').textContent = '还没有进入实验室。';
+    $('#lab-score').textContent = '点“进入实验室”抽第一个世界。';
+    $('#lab-answer').textContent = '';
+    return;
+  }
+  const notes = summarizeNotebook(lab.notebook), confirmed = notes.filter(n => n.state === '确认').length;
+  $('#lab-world').textContent = `${labWorldName()} · 种子 ${lab.seed}`;
+  $('#lab-notebook').textContent = notes.length
+    ? notes.map(n => `【${n.state}】${n.claim}（证据 ${n.evidence.length} 条 · 把握 ${n.confidence}）`).join('　')
+    : '还是空的。它对这个世界没有任何结论，连哪个通道会跳都不知道。';
+  const accuracy = lab.accuracy.total ? `${Math.round(lab.accuracy.hits / lab.accuracy.total * 100)}%（${lab.accuracy.hits}/${lab.accuracy.total}）` : '还没有下过预测';
+  const prior = lab.priorScore ? `${lab.priorScore.hits}/${lab.priorScore.total} 命中 · ${lab.priorScore.rows.map(r => `${r.channel}=${roleName(r.guessed)}`).join(' ')}` : '还没测';
+  const history = lab.stats.map(s => `世界 ${s.index}：实验 ${s.experiments} 次 · 确认 ${s.confirmed} 条 · 预测 ${s.accuracy.total ? `${Math.round(s.accuracy.hits / s.accuracy.total * 100)}%` : '—'}`).join('　');
+  $('#lab-score').textContent = `先验猜测 ${prior}　|　模型调用 ${lab.calls} 次　|　引擎实验 ${lab.traces.filter(t => t.origin === 'engine').length} 次 · 你的示范 ${lab.traces.filter(t => t.origin === 'human').length} 次　|　确认条目 ${confirmed}/${notes.length}　|　预测命中 ${accuracy}${history ? `　|　${history}` : ''}`;
+  $('#lab-answer').textContent = lab.answer
+    ? `真相：${Object.entries(lab.answer.mapping).map(([channel, role]) => `${channel}=${roleName(role)}`).join('　')}　·　速度 ${lab.answer.physics.speed} · 重力 ${lab.answer.physics.gravity} · 跳跃力度 ${lab.answer.physics.jump} · 短跳截断 ${lab.answer.physics.cut}`
+    : '';
+}
 function update() {
   $('#level-title').textContent = level.title;
   $('#objective').textContent = `精灵金币 ${progress.coins.length}/${level.coins.length} · ${progress.key ? '已取钥匙' : '先取钥匙'} · ${progress.switchOn ? '门已开' : '回头开机关'}`;
@@ -105,6 +234,7 @@ function update() {
   $('#lesson-count').textContent = `${samples.length} 次示范`; $('#learning-note').textContent = recording ? '正在录制你的真实按键。' : '最近 4 次示范会作为上下文送给模型，未修改模型权重。';
   $('#lessons').textContent = samples.slice(-4).map((s, i) => `${i + 1}. ${s.level.title} · ${s.outcome === 'fell' ? '跌落反例' : '操作示范'}`).join('　');
   $('#finish-demo').hidden = !recording; $('#finish').hidden = !progress.won; $('#retry-pet').disabled = !ready || pending;
+  updateLab();
 }
 function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
 function label(text, x, y, color = '#42624e', size = 14) { ctx.fillStyle = color; ctx.font = `600 ${size}px system-ui`; ctx.textAlign = 'center'; ctx.fillText(text, x, y); }
@@ -159,6 +289,24 @@ for (const button of document.querySelectorAll('[data-key]')) {
   button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); pointers.set(event.pointerId, button.dataset.key); syncKeys(); });
   for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(eventName, event => { pointers.delete(event.pointerId); syncKeys(); });
 }
+function enterLab() {
+  if (!lab.world) return nextWorld({ first: true });
+  mode = 'lab'; cancel(); recording = null; idle();
+  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
+  calls = falls = 0; feedback = ''; paused = false; lab.pending = null; $('#soundless-pause').textContent = '暂停';
+  $('#level-source').textContent = `空白实验室 · ${labWorldName()} · 机制保密`;
+  status = '回到这个世界的实验室：机制手册和实验记录都还在。';
+  $('#lab-enter').hidden = true; $('#back-classic').hidden = false; update(); canvas.focus();
+}
+$('#lab-enter').addEventListener('click', enterLab);
+$('#back-classic').addEventListener('click', backToClassic);
+$('#lab-prior').addEventListener('click', labPrior);
+$('#lab-battery').addEventListener('click', labBattery);
+$('#lab-induce').addEventListener('click', labInduce);
+$('#lab-try').addEventListener('click', start);
+$('#lab-reveal').addEventListener('click', labReveal);
+$('#lab-next').addEventListener('click', () => nextWorld());
+$('#lab-forget').addEventListener('click', () => { cancel(); lab = { ...lab, notebook: [], traces: [], prior: null, priorScore: null, answer: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [] }; saveLab(); status = '这只精灵的机制手册和实验记录已清空，世界没有换。'; update(); });
 $('#teach').addEventListener('click', teach);
 $('#finish-demo').addEventListener('click', () => { finishDemo(); start(); });
 $('#retry-pet').addEventListener('click', start);

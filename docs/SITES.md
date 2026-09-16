@@ -52,3 +52,7 @@ Sites v16 succeeded on 2026-09-14: `/jump.html` is linked from the game library.
 The current source adds real-model jump decisions and model-generated platform geometry with replay verification. Existing session identities are reused; no schema migration. Demonstrations remain browser-local and unranked. The previous v16 description is historical. See [behavior and evidence](JUMP-MODEL-2026-09-15.md) for source versus deployment status.
 
 Sites v17 succeeded on 2026-09-15. Runtime GitHub `b1ad48b`, Sites `ec5bc1675b548d53f5d982c7bb975bef180d861b`; 64 runtime files identical. 167 Node + 40 cloud tests, syntax/secret-pattern scan and build passed. Deployment `appgdep_6aa8b5d6c8f48191a0fba1e186ed5b9f` reported succeeded. Real local model generation and partial gameplay checked; full learning effectiveness remains unverified.
+
+## Blank lab update
+
+Source adds `/api/jump/lab/prior|induce|plan` and a browser-local blank-slate world where channel roles and physics are hidden per world. Both Node and the Worker implement the three lanes with separate per-minute limits; `lab/plan` shares the `play` lane and lease with `/api/jump/decision`. No schema migration and no identity, reward or existing-game change. 181 Node + 40 cloud tests, syntax scan and build passed; real-model checks ran against a local Node server. This update is **not published**: the `sites-app/` mirror and the deployed site still serve v17. See [behavior and evidence](JUMP-BLANK-PET-2026-09-15.md).

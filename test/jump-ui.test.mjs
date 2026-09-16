@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import * as engine from '../public/jump-world.mjs';
+import * as lab from '../public/jump-lab.mjs';
 import {defaultAppearance,validateAppearance,petDisplayName} from '../shared/pet.mjs';
 async function fixture(){
  const nodes=new Map(),events=new Map(),saved=new Map(),requests=[];let resolveDecision;
  const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#camera'?'human':'',hidden:true,textContent:'',addEventListener(t,h){this[t]=h;},focus(){},closest(){return null;},getContext(){return {};},clientWidth:900});return nodes.get(id);};
- const context=vm.createContext({...engine,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
+ const context=vm.createContext({...engine,...lab,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
  document:{querySelector:node,querySelectorAll:()=>[],addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
  localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},fetch:async(path,opts)=>{
  if(path==='/api/jump/decision'){requests.push(JSON.parse(opts.body));return new Promise(r=>{resolveDecision=data=>r({ok:true,json:async()=>data});});}

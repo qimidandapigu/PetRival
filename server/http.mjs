@@ -1,4 +1,4 @@
-import { planJump, generateJump } from './jump-model.mjs';
+import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics } from './jump-model.mjs';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -10,6 +10,14 @@ import { BoxingArena } from './boxing-arena.mjs';
 import { Arena, ApiError } from './arena.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+// Model lanes: play drives the pet, preparation builds levels, lab learns mechanics.
+const JUMP_ROUTES = {
+  '/api/jump/decision': { handler: planJump, lane: 'play', perMinute: 20 },
+  '/api/jump/lab/plan': { handler: planJumpLab, lane: 'play', perMinute: 20 },
+  '/api/jump/generate': { handler: generateJump, lane: 'preparation', perMinute: 2 },
+  '/api/jump/lab/prior': { handler: probeJumpPrior, lane: 'probe', perMinute: 6 },
+  '/api/jump/lab/induce': { handler: induceJumpMechanics, lane: 'induce', perMinute: 12 },
+};
 const files = {
   '/boxing': ['public/boxing.html', 'text/html; charset=utf-8'],
   '/boxing.html': ['public/boxing.html', 'text/html; charset=utf-8'],
@@ -24,6 +32,7 @@ const files = {
   '/jump.html': ['public/jump.html', 'text/html; charset=utf-8'],
   '/jump.css': ['public/jump.css', 'text/css; charset=utf-8'],
   '/jump.mjs': ['public/jump.mjs', 'text/javascript; charset=utf-8'],
+  '/jump-lab.mjs': ['public/jump-lab.mjs', 'text/javascript; charset=utf-8'],
   '/jump-engine.mjs': ['public/jump-engine.mjs', 'text/javascript; charset=utf-8'],
   '/about': ['public/about.html', 'text/html; charset=utf-8'],
   '/about.html': ['public/about.html', 'text/html; charset=utf-8'],
@@ -109,14 +118,14 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (!owner) throw new ApiError(401, '请先建立访客身份');
       if (path === '/api/state' && req.method === 'GET') return json(200, arena.view(owner));
       const input = req.method === 'POST' ? await body(req) : {};
-      if (['/api/jump/decision', '/api/jump/generate'].includes(path) && req.method === 'POST') {
-        const generation = path.endsWith('generate'), key = `jump:${owner}:${generation}`;
-        rate(key, generation ? 2 : 20);
+      if (JUMP_ROUTES[path] && req.method === 'POST') {
+        const route = JUMP_ROUTES[path], key = `jump:${owner}:${route.lane}`;
+        rate(key, route.perMinute);
         if (jumpBusy.has(key)) throw new ApiError(429, '上一段模型请求还在处理中');
         jumpBusy.add(key);
         const abort = new AbortController(), stop = () => { if (!res.writableEnded) abort.abort(); };
         res.on('close', stop);
-        try { return json(200, await (generation ? generateJump : planJump)(brain, input, { signal: abort.signal })); }
+        try { return json(200, await route.handler(brain, input, { signal: abort.signal })); }
         finally { jumpBusy.delete(key); res.off('close', stop); }
       }
       if (path === '/api/boxing' && req.method === 'GET') return json(200, boxing.view(owner));

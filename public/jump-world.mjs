@@ -1,5 +1,7 @@
 // Shared deterministic physics. Model controls the pet; search is generation QA only.
-export const PHYSICS = Object.freeze({ speed: 3.2, gravity: .55, jump: -12.2, radius: 10, height: 24, fps: 60 });
+// `physics` is a parameter so a world can hide its own numbers from the model. PHYSICS
+// stays the reference profile used by the built-in level and the level generator.
+export const PHYSICS = Object.freeze({ speed: 3.2, gravity: .55, jump: -12.2, cut: -4, radius: 10, height: 24, fps: 60 });
 const n = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 export function validateLevel(raw) {
   const fail = text => { throw new Error(`关卡格式：${text}`); };
@@ -24,18 +26,18 @@ export function starterLevel() {
 export function actor(spawn) { return { x: spawn.x, y: spawn.y, vx: 0, vy: 0, grounded: true, held: false, dead: false }; }
 export function progress() { return { coins: [], key: false, switchOn: false, won: false }; }
 export function copyProgress(p) { return { coins: [...p.coins], key: !!p.key, switchOn: !!p.switchOn, won: !!p.won }; }
-export function step(a, input, level, p, role = 'pet') {
+export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
   if (a.dead || (role === 'pet' && p.won)) return;
   const oldX = a.x, oldY = a.y;
-  a.vx = [-1, 0, 1].includes(input.move) ? input.move * PHYSICS.speed : 0;
-  if (input.jump && !a.held && a.grounded) { a.vy = PHYSICS.jump; a.grounded = false; }
+  a.vx = [-1, 0, 1].includes(input.move) ? input.move * physics.speed : 0;
+  if (input.jump && !a.held && a.grounded) { a.vy = physics.jump; a.grounded = false; }
   a.held = !!input.jump;
-  if (!input.jump && a.vy < -4) a.vy = -4;
+  if (!input.jump && a.vy < physics.cut) a.vy = physics.cut;
   a.x = Math.max(12, Math.min(level.width - 12, a.x + a.vx));
   const d = level.door;
-  if (role === 'pet' && !p.switchOn && a.y > d.y && a.y - PHYSICS.height < d.y + d.h && Math.abs(a.x - d.x) < 14) a.x = oldX < d.x ? d.x - 14 : d.x + 14;
+  if (role === 'pet' && !p.switchOn && a.y > d.y && a.y - physics.height < d.y + d.h && Math.abs(a.x - d.x) < 14) a.x = oldX < d.x ? d.x - 14 : d.x + 14;
   if (a.grounded && !level.platforms.some(s => Math.abs(s.y - a.y) < .1 && a.x >= s.x && a.x <= s.x + s.w)) a.grounded = false;
-  if (!a.grounded) { a.vy += PHYSICS.gravity; a.y += a.vy; }
+  if (!a.grounded) { a.vy += physics.gravity; a.y += a.vy; }
   if (a.vy >= 0) {
     const surfaces = level.platforms.filter(s => a.x >= s.x && a.x <= s.x + s.w && oldY <= s.y + .01 && a.y >= s.y).sort((a, b) => a.y - b.y);
     if (surfaces.length) { a.y = surfaces[0].y; a.vy = 0; a.grounded = true; }
@@ -61,9 +63,9 @@ export function validateActions(raw, maxFrames = 240) {
   if (total > maxFrames) throw new Error(`动作总长度超过 ${maxFrames} 帧`);
   return actions;
 }
-export function replayActions(level, start, initial, actions, role = 'pet') {
+export function replayActions(level, start, initial, actions, role = 'pet', physics = PHYSICS) {
   const a = { ...start }, p = copyProgress(initial);
-  for (const action of actions) for (let i = 0; i < action.frames && !a.dead && !p.won; i++) step(a, action, level, p, role);
+  for (const action of actions) for (let i = 0; i < action.frames && !a.dead && !p.won; i++) step(a, action, level, p, role, physics);
   return { actor: a, progress: p };
 }
 export function observation(level, a, p) {
@@ -73,12 +75,12 @@ export function observation(level, a, p) {
 
 // Bounded search over executed walking/jumping edges. A witness is always replayed
 // by the same physics. Failure to find a witness means unverified, not impossible.
-export function verifyLevel(level, { maxNodes = 9000 } = {}) {
+export function verifyLevel(level, { maxNodes = 9000, physics = PHYSICS } = {}) {
   const initial = { a: actor(level.spawn), p: progress(), cost: 0, parent: null, action: null };
   const heap = [], seen = new Map(); let visited = 0;
   const score = s => {
     const target = !s.p.key ? level.key : !s.p.switchOn ? level.switch : level.coins.find((_, i) => !s.p.coins.includes(i)) || { x: level.goal.x, y: level.goal.y - 12 };
-    return s.cost * .12 + Math.abs(s.a.x - target.x) / 3.2 + Math.abs(s.a.y - 12 - target.y) * .5;
+    return s.cost * .12 + Math.abs(s.a.x - target.x) / physics.speed + Math.abs(s.a.y - 12 - target.y) * .5;
   };
   const push = s => { const id = key(s); if ((seen.get(id) ?? Infinity) <= s.cost) return; seen.set(id, s.cost); s.priority = score(s); heap.push(s); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j].priority <= s.priority) break; heap[i] = heap[j]; i = j; } heap[i] = s; };
   const pop = () => { const s = heap[0], end = heap.pop(); if (heap.length) { let i = 0; while (i * 2 + 1 < heap.length) { let j = i * 2 + 1; if (j + 1 < heap.length && heap[j + 1].priority < heap[j].priority) j++; if (end.priority <= heap[j].priority) break; heap[i] = heap[j]; i = j; } heap[i] = end; } return s; };
@@ -88,15 +90,15 @@ export function verifyLevel(level, { maxNodes = 9000 } = {}) {
     const s = pop(), id = key(s); if (seen.get(id) < s.cost) continue;
     if (s.p.won) {
       const actions = []; for (let n = s; n.parent; n = n.parent) actions.push(...[...n.action].reverse()); actions.reverse();
-      const check = replayActions(level, initial.a, initial.p, actions);
+      const check = replayActions(level, initial.a, initial.p, actions, 'pet', physics);
       return { verified: check.progress.won, visited, frames: s.cost, actions };
     }
     for (const move of [-1, 1]) for (const hold of [0, 8, 20, 48]) {
       const a = { ...s.a }, p = copyProgress(s.p), actions = []; let frames = 0;
-      if (hold && a.held) { const release = { move: 0, jump: false, frames: 1 }; step(a, release, level, p); actions.push(release); frames++; }
+      if (hold && a.held) { const release = { move: 0, jump: false, frames: 1 }; step(a, release, level, p, 'pet', physics); actions.push(release); frames++; }
       for (let i = 0; i < (hold ? 95 : 5); i++) {
         const input = { move, jump: i < hold };
-        step(a, input, level, p); frames++;
+        step(a, input, level, p, 'pet', physics); frames++;
         const last = actions.at(-1); if (last && last.jump === input.jump) last.frames++; else actions.push({ ...input, frames: 1 });
         if (a.dead || p.won || (hold && i > 0 && a.grounded)) break;
       }

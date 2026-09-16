@@ -1,4 +1,4 @@
-import { planJump, generateJump } from '../server/jump-model.mjs';
+import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics } from '../server/jump-model.mjs';
 import { CloudArena } from './arena.mjs';
 import { transaction } from './store.mjs';
 import { makeBrain, executeJob } from './brain.mjs';
@@ -80,14 +80,23 @@ async function boxingWork(request, env, brain) {
   finally { brain.close(); }
 }
 
-async function jumpWork(request, env, brain, input, generation) {
+// Same model lanes as the Node server: play drives the pet, preparation builds levels,
+// lab learns mechanics. Each lane keeps its own per-user lease and minute limit.
+const JUMP_ROUTES = {
+  '/api/jump/decision': { handler: planJump, lane: 'play', limit: 20, ms: 110000 },
+  '/api/jump/lab/plan': { handler: planJumpLab, lane: 'play', limit: 20, ms: 110000 },
+  '/api/jump/generate': { handler: generateJump, lane: 'preparation', limit: 2, ms: 270000 },
+  '/api/jump/lab/prior': { handler: probeJumpPrior, lane: 'probe', limit: 6, ms: 60000 },
+  '/api/jump/lab/induce': { handler: induceJumpMechanics, lane: 'induce', limit: 12, ms: 110000 },
+};
+async function jumpWork(request, env, brain, input, route) {
   const nonce = crypto.randomUUID();
   const lease = await runTransaction(env, brain, arena => {
     const owner = identity(request, arena); if (!owner) throw new ApiError(401, '请先登录或建立访客身份');
-    const id = `jump:${owner}:${generation}`;
-    limit(arena, owner, id, generation ? 2 : 20);
+    const id = `jump:${owner}:${route.lane}`;
+    limit(arena, owner, id, route.limit);
     if (arena.s.sessions[id]?.until > arena.now()) throw new ApiError(429, '上一段模型请求还在处理中');
-    arena.s.sessions[id] = { owner, createdAt: arena.now(), until: arena.now() + (generation ? 270000 : 110000), nonce };
+    arena.s.sessions[id] = { owner, createdAt: arena.now(), until: arena.now() + route.ms, nonce };
     return id;
   });
   const abort = new AbortController(), encoder = new TextEncoder();
@@ -98,7 +107,7 @@ async function jumpWork(request, env, brain, input, generation) {
       const pulse = setInterval(() => send('\n'), 10000);
       send('\n');
       (async () => {
-        try { send(JSON.stringify(await (generation ? generateJump : planJump)(brain, input, { signal: abort.signal }))); }
+        try { send(JSON.stringify(await route.handler(brain, input, { signal: abort.signal }))); }
         catch (e) { send(JSON.stringify({ error: e.status ? e.message : '模型服务暂不可用，当前关卡已保留' })); }
         finally {
           clearInterval(pulse); brain.close();
@@ -145,7 +154,7 @@ export default {
         return json({ ok: true }, 200, { 'set-cookie': cookie });
       }
       if (path === '/api/health' && request.method === 'GET') { await env.DB.prepare('SELECT revision FROM arena_meta LIMIT 1').all(); return json({ ok: true, game: 'PetRival', storage: 'D1', ...brain.info() }); }
-      if (['/api/jump/decision', '/api/jump/generate'].includes(path) && request.method === 'POST') return await jumpWork(request, env, brain, input, path.endsWith('generate'));
+      if (JUMP_ROUTES[path] && request.method === 'POST') return await jumpWork(request, env, brain, input, JUMP_ROUTES[path]);
       if (path === '/api/work' && request.method === 'POST') return await work(request, env, brain);
       if (path === '/api/boxing/work' && request.method === 'POST') return await boxingWork(request, env, brain);
       let responseStatus = 200, responseHeaders = {};
