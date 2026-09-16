@@ -10,7 +10,10 @@ let samples = [], recording = null, enabled = false, pending = false, paused = f
 let queue = [], calls = 0, falls = 0, humanFalls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
 let status = '第 1 关只要一直往右走。点开始让小精灵自己试，或你亲自走一遍给它看。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false;
 let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = true;
-function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins })); } catch {} }
+// The pet's own experience, and the rules it has summarised out of that experience and your
+// demonstrations. Both are memory: they are stored and re-sent, the weights never change.
+let attempts = [], lessonNotes = [], planActions = [];
+function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins, attempts: attempts.slice(-8), notes: lessonNotes })); } catch {} }
 function loadStage(stored) {
   if (!stored) return;
   try {
@@ -18,8 +21,35 @@ function loadStage(stored) {
     clearedStages = unlockAfter(Array.isArray(stored.cleared) ? stored.cleared : [], 0).filter(id => id <= STAGES.length);
     petWins = Number.isInteger(stored.petWins) ? stored.petWins : 0;
     humanWins = Number.isInteger(stored.humanWins) ? stored.humanWins : 0;
+    attempts = Array.isArray(stored.attempts) ? stored.attempts.slice(-8) : [];
+    lessonNotes = summarizeNotebook(stored.notes);
     level = stageLevel(stageId);
-  } catch { stageId = 1; clearedStages = []; }
+  } catch { stageId = 1; clearedStages = []; attempts = []; lessonNotes = []; }
+}
+// One line of experience: where it started, what it pressed, where it ended and whether it
+// died. This is what makes "I fell in the same place three times" visible to the model.
+function recordAttempt() {
+  if (!planActions.length) return;
+  const outcome = pet.dead ? 'fell' : progress.won ? 'won' : 'alive';
+  attempts = [...attempts, { from: { x: planStart.x, y: planStart.y, vy: planStart.vy, grounded: planStart.grounded },
+    to: { x: pet.x, y: pet.y, vy: pet.vy, grounded: pet.grounded }, outcome, actions: planActions.map(a => ({ ...a })) }].slice(-8);
+  planActions = [];
+  logEvent('attempt', `第 ${attempts.length} 次尝试：x=${Math.round(planStart.x)} → x=${Math.round(pet.x)}（${outcome === 'fell' ? '掉下去了' : outcome === 'won' ? '通关' : '还活着'}），动作 ${describeActions(attempts[attempts.length - 1].actions, false)}`);
+}
+// Demonstrations and failed attempts become rules, not just replayable clips.
+async function learnLesson() {
+  if (mode === 'lab' || pending) return;
+  if (!attempts.length && !samples.length) { status = '还没有可以总结的东西：让它试几次，或者你示范一次。'; return update(); }
+  $('#lesson-learn').disabled = true;
+  status = '正在把你的示范和它的尝试总结成这一关的规则…'; update();
+  try {
+    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes }, AbortSignal.timeout(120000));
+    lessonNotes = summarizeNotebook(result.knowledge); saveStage();
+    logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
+    for (const note of lessonNotes.slice(-3)) logEvent('learn', `规则【${note.state}】${note.claim}（证据 ${note.evidence.length} 条）`);
+    status = `现在有 ${lessonNotes.length} 条规则（其中确认 ${lessonNotes.filter(n => n.state === '确认').length} 条），它下次决策会参考。`;
+  } catch (e) { logEvent('error', `总结失败：${e.message}`); status = e.message; }
+  finally { $('#lesson-learn').disabled = false; update(); }
 }
 // Blank lab: this world's channel roles and physics exist only in `lab.world`, and `mode`
 // decides whether the model is playing a designed level or learning from scratch.
@@ -193,11 +223,13 @@ async function decide() {
   try {
     const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
       learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
-        : { level, actor: pet, progress, demonstrations: samples.slice(-4), note: $('#teacher-note').value, feedback },
+        : { level, actor: pet, progress, demonstrations: samples.slice(-4), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
     queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions)).map(a => ({ ...a }));
+    planActions = learning ? [] : queue.map(a => ({ ...a }));
+    if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
     const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
       : { lines: [`示范 ${samples.slice(-4).length} 条`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };
@@ -255,7 +287,11 @@ function finishDemo() {
     samples.push(sample); samples = samples.slice(-8); save();
     logEvent('demo', `示范课：记录你 ${frames} 帧真实操作（${sample.outcome === 'fell' ? '跌落反例' : '存活'}），起点 x=${Math.round(sample.from.x)} → 终点 x=${Math.round(sample.to.x)}，花了 0 次模型调用`);
     noteMemory('你的示范', false);
-    status = '已记录你的真实操作。下一次模型会参考它；这不代表已经学会。';
+    recording = null;
+    status = '已记录你的真实操作。正在把它总结成规则…';
+    update();
+    learnLesson();
+    return;
   } else status = '这次没有操作，未保存示范。';
   recording = null; update();
 }
@@ -316,6 +352,7 @@ function advance() {
       if (!queue.length) {
         if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
+        if (mode !== 'lab') recordAttempt();
       }
     } else decide();
   }
@@ -486,10 +523,20 @@ function renderMemory() {
   const lines = [];
   lines.push('模型权重不会变：每次调用都把下面这些重新塞进提示词。所以"学到"= 这里的内容变了。');
   lines.push('');
-  lines.push(learning ? `【知识库】${lab.notebook.length} 条（每次送全部）` : `【示范记忆】${samples.length} 条（最多 8 条，每次只送最近 4 条）`);
+  lines.push(learning ? `【知识库】${lab.notebook.length} 条（每次送全部）` : `【这一关的规则】${lessonNotes.length} 条（确认 ${lessonNotes.filter(n => n.state === '确认').length} 条 · 每次全部送进去）`);
   const memory = Array.isArray(lab.memory) && lab.memory.length ? lab.memory : snapshotMemory(learning);
-  if (!memory.length) lines.push(learning ? '　还是空的：先做实验台或让它归纳。' : '　还是空的：点「回去示范」录一次，它下一次就会参考。');
+  if (!memory.length) lines.push(learning ? '　还是空的：先做实验台或让它归纳。' : '　还是空的：点「让它总结」，把你的示范和它的尝试变成规则。');
   else memory.slice(-10).forEach((entry, i) => lines.push(`　${i + 1}. ${entry.text}`));
+  if (!learning) {
+    lines.push('');
+    lines.push(`【它的尝试】最近 ${attempts.length} 次（它每次决策都会看到）`);
+    if (!attempts.length) lines.push('　还没有。点「开始 / 继续模型闯关」让它自己试。');
+    attempts.slice(-6).reverse().forEach(entry => lines.push(`　${entry.outcome === 'fell' ? '✗' : entry.outcome === 'won' ? '✓' : '·'} x=${Math.round(entry.from.x)}→${Math.round(entry.to.x)} ${entry.outcome === 'fell' ? '掉下去了' : entry.outcome === 'won' ? '通关' : '还活着'}`));
+    lines.push('');
+    lines.push(`【示范记忆】${samples.length} 条（最多 8 条，每次只送最近 4 条）`);
+    if (!samples.length) lines.push('　还没有：点「回去示范」录一次，它会先自己总结成规则。');
+    samples.slice(-4).forEach((s, i) => lines.push(`　${i + 1}. ${s.level.title} · x=${Math.round(s.from.x)}→${Math.round(s.to.x)} ${s.outcome === 'fell' ? '摔了' : '成功'}`));
+  }
   lines.push('');
   lines.push('【本次变化】');
   lines.push(...memoryChangeLines());
@@ -711,6 +758,7 @@ $('#teach').addEventListener('click', teach);
 $('#finish-demo').addEventListener('click', () => { finishDemo(); start(); });
 $('#retry-pet').addEventListener('click', start);
 $('#restart').addEventListener('click', () => restartRound());
+$('#lesson-learn').addEventListener('click', () => learnLesson());
 $('#split').addEventListener('change', event => { splitView = event.target.checked; saveView(); update(); });
 $('#soundless-pause').addEventListener('click', () => { paused = !paused; idle(); $('#soundless-pause').textContent = paused ? '继续' : '暂停'; update(); canvas.focus(); });
 $('#generate').addEventListener('click', generate);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {starterLevel,actor,progress,step,touch,replayActions,verifyLevel,validateActions,validateLevel} from '../public/jump-world.mjs';
-import {planJump,generateJump} from '../server/jump-model.mjs';
+import {planJump,generateJump,learnJumpLesson} from '../server/jump-model.mjs';
 const fake = fn => ({mode:'model',info:()=>({model:'fixture-model'}),json:fn});
 test('both players run the same rules on their own score, and the witness replays for either',()=>{
  const level=starterLevel(), proof=verifyLevel(level);assert.equal(proof.verified,true);
@@ -18,6 +18,29 @@ test('both players run the same rules on their own score, and the witness replay
  p.key=true;touch(actor({x:176,y:400}),'pet',level,p);assert.equal(p.switchOn,true);step(a,{move:1,jump:false},level,p);assert.ok(a.x>914);
  step(a,{move:1,jump:false},level,p);assert.equal(p.won,false,'the pet door opens only for the pet progress that carries the key');
 });
+test('the lesson model is shown a screen, not a blueprint, and is not told how to win',async()=>{
+ const level=starterLevel(),a=actor(level.spawn);let messages;
+ const brain={mode:'model',info:()=>({model:'fixture-model'}),json:async m=>{messages=m;return {actions:[{move:1,jump:false,frames:20}],goal:'往右走',plan:'先走到坑边再跳'};}};
+ const result=await planJump(brain,{level,actor:a,progress:progress(),
+   attempts:[{from:a,to:{...a,x:a.x+60},outcome:'fell',actions:[{move:1,jump:false,frames:20}]}],
+   knowledge:[{id:'n1',claim:'96 像素的空隙要按住跳 30 帧以上',state:'确认',evidence:['a','b','c']}]});
+ assert.equal(result.plan,'先走到坑边再跳');
+ const system=messages[0].content,user=JSON.parse(messages[1].content);
+ assert.equal(/speed|gravity|"jump":/.test(system),false,'no physics constants are handed over');
+ assert.equal(system.includes('先取钥匙'),false,'no walkthrough order');
+ assert.equal(system.includes('坑边前停下'),false,'no stop-at-the-edge instruction');
+ assert.equal(system.includes('让 progress.won 变成 true'),true,'the only stated goal is to win');
+ assert.equal(system.includes('# 地面或平台'),true,'the legend explains the screen symbols');
+ assert.ok(user.screen.rows.length>=20,'the screen is a grid of rows');
+ assert.equal(user.screen.rows.some(r=>r.includes('@')),true,'the pet is drawn on it');
+ assert.equal(user.attempts.length,1,'its own failed attempt is in the context');
+ assert.equal(user.knowledge.length,1,'its summarised knowledge is in the context');
+ assert.equal(user.level,undefined,'the rectangle blueprint is gone');
+ await assert.rejects(learnJumpLesson(brain,{level}),/还没有可以总结的尝试或示范/);
+ const learned=await learnJumpLesson(brain,{level,attempts:[{from:a,to:{...a,x:a.x+60},outcome:'fell',actions:[{move:1,jump:false,frames:20}]}],
+   knowledge:[{id:'n1',claim:'x=400 处会掉下去',state:'猜想',evidence:[]}]});
+ assert.equal(learned.attempts,1);
+});
 test('unreachable key is rejected by bounded search; malformed actions cannot teleport',()=>{
  const l=starterLevel();l.key={x:1100,y:80};assert.equal(verifyLevel(l).verified,false);
  assert.throws(()=>validateActions([{move:9,jump:false,frames:1}]));assert.throws(()=>validateActions([{move:1,jump:false,frames:900}]));
@@ -29,7 +52,9 @@ test('model sees demonstrations, outputs actual actions, gets no generation witn
  const brain=fake(async messages=>{observed=JSON.parse(messages[1].content);return {actions,goal:'前往高台',usedDemonstrations:['my-demo','invented']};});
  const r=await planJump(brain,{level,actor:a,progress:progress(),demonstrations:[d]});
  assert.deepEqual(r.actions,actions);assert.equal(r.method,'model');assert.deepEqual(r.usedDemonstrations,['my-demo']);
- assert.deepEqual(observed.demonstrations[0].actions,actions);assert.equal(observed.level.actions,undefined);assert.equal(observed.solution,undefined);
+ assert.deepEqual(observed.demonstrations[0].actions,actions);
+ assert.equal(observed.level,undefined,'the level is a screen now, not a rectangle list');
+ assert.ok(observed.screen.rows.length>10);assert.equal(observed.attempts.length,0);assert.equal(observed.solution,undefined);
  await assert.rejects(planJump({...brain,mode:'algorithm'},{level}),/未连接真实大模型/);
  await assert.rejects(planJump(fake(async()=>({actions:[{move:2,jump:false,frames:1}]})),{level,actor:a,progress:progress()}),/无效动作/);
 });

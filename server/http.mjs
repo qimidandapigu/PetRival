@@ -1,4 +1,4 @@
-import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics } from './jump-model.mjs';
+import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics, learnJumpLesson } from './jump-model.mjs';
 import { writeJumpWorldModel } from './jump-world-api.mjs';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -18,6 +18,7 @@ const JUMP_ROUTES = {
   '/api/jump/generate': { handler: generateJump, lane: 'preparation', perMinute: 2 },
   '/api/jump/lab/prior': { handler: probeJumpPrior, lane: 'probe', perMinute: 6 },
   '/api/jump/lab/induce': { handler: induceJumpMechanics, lane: 'induce', perMinute: 12 },
+  '/api/jump/lesson/learn': { handler: learnJumpLesson, lane: 'induce', perMinute: 12 },
   // Up to three model turns per request (write, then repair with the engine's diff).
   '/api/jump/lab/model': { handler: writeJumpWorldModel, lane: 'world', perMinute: 6 },
 };

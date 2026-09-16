@@ -1,4 +1,4 @@
-import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics } from '../server/jump-model.mjs';
+import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics, learnJumpLesson } from '../server/jump-model.mjs';
 import { CloudArena } from './arena.mjs';
 import { transaction } from './store.mjs';
 import { makeBrain, executeJob } from './brain.mjs';
@@ -88,6 +88,7 @@ const JUMP_ROUTES = {
   '/api/jump/generate': { handler: generateJump, lane: 'preparation', limit: 2, ms: 270000 },
   '/api/jump/lab/prior': { handler: probeJumpPrior, lane: 'probe', limit: 6, ms: 60000 },
   '/api/jump/lab/induce': { handler: induceJumpMechanics, lane: 'induce', limit: 12, ms: 110000 },
+  '/api/jump/lesson/learn': { handler: learnJumpLesson, lane: 'induce', limit: 12, ms: 110000 },
   // The code sandbox (node:vm) is a Node-only capability. The Worker answers this lane
   // with an explicit message instead of importing a module it cannot run.
   '/api/jump/lab/model': { handler: unsupportedWorldModel, lane: 'world', limit: 6, ms: 60000 },

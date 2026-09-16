@@ -110,3 +110,30 @@ export function verifyLevel(level, { maxNodes = 9000, physics = PHYSICS } = {}) 
   }
   return { verified: false, visited, reason: '有界物理搜索未找到完整通关路线，请缩短跳跃距离、降低平台或调整钥匙/开关/门的连接。' };
 }
+
+// A screen, not a blueprint: the level as a character grid the model can read line by line,
+// the way a player sees it. One cell is TILE pixels, row 0 is the top of the world.
+export const TILE = 16;
+export const TILE_LEGEND = '# 地面或平台 · 空格=空气 · ~ 水（掉下去会死） · c 金币 · k 钥匙 · s 机关 · D 关着的门 · d 开着的门 · G 终点 · @ 你自己';
+export function tileMap(level, a, p = { coins: [], key: false, switchOn: false }, { water = 430, rows = 30 } = {}) {
+  const cols = Math.ceil(level.width / TILE);
+  const grid = Array.from({ length: rows }, () => Array(cols).fill(' '));
+  const put = (x, y, ch) => {
+    const col = Math.floor(x / TILE), row = Math.floor(y / TILE);
+    if (row >= 0 && row < rows && col >= 0 && col < cols) grid[row][col] = ch;
+  };
+  const fill = (x, y, w, h, ch) => {
+    for (let yy = y; yy < y + h; yy += TILE) for (let xx = x; xx < x + w; xx += TILE) put(xx + 1, yy + 1, ch);
+  };
+  // Ground runs to the bottom of the screen; higher ledges are thin, the way they look.
+  for (const plat of level.platforms) fill(plat.x, plat.y, plat.w, plat.y >= 400 ? rows * TILE - plat.y : 24, '#');
+  for (let row = Math.floor(water / TILE); row < rows; row++)
+    for (let col = 0; col < cols; col++) if (grid[row][col] === ' ') grid[row][col] = '~';
+  level.coins.forEach((coin, i) => { if (!(p.coins || []).includes(i)) put(coin.x, coin.y, 'c'); });
+  if (!p.key) put(level.key.x, level.key.y, 'k');
+  put(level.switch.x, level.switch.y, 's');
+  fill(level.door.x, level.door.y, 16, level.door.h, p.switchOn ? 'd' : 'D');
+  put(level.goal.x, level.goal.y - TILE, 'G');
+  if (a && !a.dead) put(a.x, a.y - TILE, '@');
+  return { legend: TILE_LEGEND, tile: TILE, rows: grid.map(row => row.join('').replace(/\s+$/, '')) };
+}
