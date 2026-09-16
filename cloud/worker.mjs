@@ -20,7 +20,7 @@ const identity = (req, arena) => accountSession(req, arena)?.owner || signedIden
 async function readBody(request) {
   const reader = request.body?.getReader(); if (!reader) return {};
   const chunks = []; let bytes = 0;
-  for (;;) { const { value, done } = await reader.read(); if (done) break; bytes += value.length; if (bytes > 32768) { await reader.cancel(); throw new ApiError(413, '请求过大'); } chunks.push(value); }
+  for (;;) { const { value, done } = await reader.read(); if (done) break; bytes += value.length; if (bytes > 65536) { await reader.cancel(); throw new ApiError(413, '请求过大'); } chunks.push(value); }
   const all = new Uint8Array(bytes); let offset = 0; for (const chunk of chunks) { all.set(chunk, offset); offset += chunk.length; }
   try { const data = JSON.parse(new TextDecoder().decode(all) || '{}'); if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(); return data; }
   catch { throw new ApiError(400, '需要 JSON 对象'); }
@@ -88,7 +88,13 @@ const JUMP_ROUTES = {
   '/api/jump/generate': { handler: generateJump, lane: 'preparation', limit: 2, ms: 270000 },
   '/api/jump/lab/prior': { handler: probeJumpPrior, lane: 'probe', limit: 6, ms: 60000 },
   '/api/jump/lab/induce': { handler: induceJumpMechanics, lane: 'induce', limit: 12, ms: 110000 },
+  // The code sandbox (node:vm) is a Node-only capability. The Worker answers this lane
+  // with an explicit message instead of importing a module it cannot run.
+  '/api/jump/lab/model': { handler: unsupportedWorldModel, lane: 'world', limit: 6, ms: 60000 },
 };
+async function unsupportedWorldModel() {
+  throw new ApiError(503, '世界模型沙箱只在本地 Node 服务可用，线上站点暂不支持这一步。');
+}
 async function jumpWork(request, env, brain, input, route) {
   const nonce = crypto.randomUUID();
   const lease = await runTransaction(env, brain, arena => {

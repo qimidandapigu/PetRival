@@ -26,7 +26,7 @@ async function fixture(){
    return new Promise(resolve=>{const queue=waiting.get(path)||[];queue.push(resolve);waiting.set(path,queue);queue.body=JSON.parse(opts.body);});
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,get:()=>({human,pet,progress,samples,queue,enabled,pending,mode,lab,level,status})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,get:()=>({human,pet,progress,samples,queue,enabled,pending,mode,lab,level,status})};',context);
  await flush();
  return {api:context.fixture,saved,waiting,answer,body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
 }
@@ -99,4 +99,29 @@ test('a new world keeps confirmed rules as unchecked hypotheses and records the 
  const truth=lab.hiddenTruth(s.lab.world);f.api.labReveal();
  const revealed=f.api.get();
  assert.deepEqual(revealed.lab.answer.mapping,truth.mapping);
+});
+test('the world-model button sends traces, stores the code, and the real engine grades its plan',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});f.api.labBattery();
+ const pending=f.api.labWriteModel();
+ const payload=f.body('/api/jump/lab/model');
+ assert.equal(payload.traces.length,9);
+ assert.equal(typeof payload.planTo,'number');
+ assert.equal(payload.planTo,lab.LAB_PLAN_TARGET);
+ for(const leak of ['mapping','physics','gravity'])assert.equal(JSON.stringify(payload).includes(leak),false,leak);
+ f.answer('/api/jump/lab/model',{method:'model',model:'fixture',code:'function step(s, a, level) { return s; }',verified:true,attempts:2,
+   matched:132,frames:132,error:0,worst:0,died:false,mismatches:[],notes:'每帧位移 2.93',failure:'',
+   plan:[{a:false,b:false,c:true,frames:30}],predicted:{x:152,y:400,vy:0,grounded:true,frames:30},planTo:520,planProblem:'',latencyMs:9});
+ await pending;
+ const s=f.api.get();
+ assert.equal(s.lab.worldModel.verified,true);assert.equal(s.lab.worldModel.attempts,2);
+ assert.equal(s.lab.worldModel.code.includes('function step'),true);
+ assert.equal(s.lab.plan.actions.length,1);assert.equal(s.lab.plan.predicted.x,152);
+ f.api.labRunModelPlan();
+ assert.equal(f.api.get().queue.length,1);
+ for(let i=0;i<30;i++)f.api.advance();
+ const after=f.api.get();
+ assert.equal(after.queue.length,0);
+ assert.equal(after.lab.modelRuns.length,1);
+ assert.equal(after.lab.traces.filter(t=>t.origin==='self').length,1);
+ assert.equal(JSON.parse(f.saved.get('petrival.jump.lab.v1.pet.p')).worldModel.verified,true);
 });

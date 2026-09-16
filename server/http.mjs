@@ -1,4 +1,5 @@
 import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics } from './jump-model.mjs';
+import { writeJumpWorldModel } from './jump-world-api.mjs';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -17,6 +18,8 @@ const JUMP_ROUTES = {
   '/api/jump/generate': { handler: generateJump, lane: 'preparation', perMinute: 2 },
   '/api/jump/lab/prior': { handler: probeJumpPrior, lane: 'probe', perMinute: 6 },
   '/api/jump/lab/induce': { handler: induceJumpMechanics, lane: 'induce', perMinute: 12 },
+  // Up to three model turns per request (write, then repair with the engine's diff).
+  '/api/jump/lab/model': { handler: writeJumpWorldModel, lane: 'world', perMinute: 6 },
 };
 const files = {
   '/boxing': ['public/boxing.html', 'text/html; charset=utf-8'],
@@ -61,7 +64,7 @@ async function body(req) {
   let bytes = 0; const chunks = [];
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > 32768) throw new ApiError(413, '请求过大');
+    if (bytes > 65536) throw new ApiError(413, '请求过大');
     chunks.push(chunk);
   }
   try {

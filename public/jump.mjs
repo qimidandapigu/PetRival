@@ -1,5 +1,5 @@
 import { starterLevel, actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
-import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES } from './jump-lab.mjs';
+import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET } from './jump-lab.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
 let level = starterLevel(), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress();
@@ -11,7 +11,8 @@ let status = '你可以先练习。点击开始后，真实模型才会决定精
 // decides whether the model is playing a designed level or learning from scratch.
 let mode = 'classic', labStorageKey = 'petrival.jump.lab.v1.guest';
 let lab = { index: 1, seed: 0, world: null, notebook: [], traces: [], prior: null, priorScore: null, answer: null,
-  pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [] };
+  pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [], worldModel: null, plan: null, modelRuns: [] };
+let modelPlan = null;
 const physics = () => mode === 'lab' && lab.world ? lab.world.physics : PHYSICS;
 const keys = { left: false, right: false, jump: false }, keyboard = new Set(), pointers = new Map();
 const idle = () => { keyboard.clear(); pointers.clear(); keys.left = keys.right = keys.jump = false; };
@@ -23,7 +24,8 @@ async function api(path, data, signal) {
 function save() { try { localStorage.setItem(storageKey, JSON.stringify(samples)); } catch { $('#save-note').textContent = '本浏览器无法保存示范；关页后可能丢失。'; } }
 function saveLab() {
   try { localStorage.setItem(labStorageKey, JSON.stringify({ index: lab.index, seed: lab.seed, notebook: summarizeNotebook(lab.notebook),
-    traces: lab.traces.slice(-MAX_TRACES), accuracy: lab.accuracy, stats: lab.stats.slice(-8), calls: lab.calls })); }
+    traces: lab.traces.slice(-MAX_TRACES), accuracy: lab.accuracy, stats: lab.stats.slice(-8), calls: lab.calls,
+    worldModel: lab.worldModel, plan: lab.plan, modelRuns: (lab.modelRuns || []).slice(-8) })); }
   catch { $('#save-note').textContent = '本浏览器无法保存机制手册；关页后可能丢失。'; }
 }
 function loadLab(stored) {
@@ -31,7 +33,10 @@ function loadLab(stored) {
   lab = { ...lab, index: Number.isInteger(stored.index) && stored.index > 0 ? stored.index : 1, seed: stored.seed, world: labWorld(stored.seed),
     notebook: summarizeNotebook(stored.notebook), traces: (Array.isArray(stored.traces) ? stored.traces : []).slice(-MAX_TRACES),
     stats: Array.isArray(stored.stats) ? stored.stats.slice(-8) : [], calls: Number.isInteger(stored.calls) ? stored.calls : 0,
-    accuracy: stored.accuracy && Number.isInteger(stored.accuracy.hits) && Number.isInteger(stored.accuracy.total) ? stored.accuracy : { hits: 0, total: 0 } };
+    accuracy: stored.accuracy && Number.isInteger(stored.accuracy.hits) && Number.isInteger(stored.accuracy.total) ? stored.accuracy : { hits: 0, total: 0 },
+    worldModel: stored.worldModel && typeof stored.worldModel.code === 'string' ? stored.worldModel : null,
+    plan: stored.plan && Array.isArray(stored.plan.actions) ? stored.plan : null,
+    modelRuns: Array.isArray(stored.modelRuns) ? stored.modelRuns.slice(-8) : [] };
 }
 async function init() {
   try {
@@ -110,6 +115,20 @@ function scoreLabPrediction() {
   lab.lastScore = scored; lab.pending = null; saveLab();
   status = `${status} · 预测命中 ${scored.hits}/${scored.total}${scored.missed.length ? `（错在 ${scored.missed.join('、')}）` : ''}，累计 ${lab.accuracy.hits}/${lab.accuracy.total}`;
 }
+// The pet planned this in its own world model; the real engine now grades the plan.
+function finishModelPlan() {
+  const planned = modelPlan; modelPlan = null;
+  if (!planned) return;
+  const trace = runExperiment(lab.world, { id: `self-${Date.now().toString(36)}`, segments: planned.actions, origin: 'self', start: planned.start, note: '按它自己的世界模型执行' });
+  lab.traces = [...lab.traces, trace].slice(-MAX_TRACES);
+  const actual = trace.samples.at(-1);
+  const hit = !trace.dead && Math.abs(actual.x - planned.predicted.x) < 40 && Math.abs(actual.y - planned.predicted.y) < 40;
+  lab.modelRuns = [...(lab.modelRuns || []), { hit, predicted: planned.predicted, actual: { x: actual.x, y: actual.y }, dead: trace.dead }].slice(-8);
+  status = hit
+    ? `它的模型说能过，真引擎也过了：预测落点 x=${planned.predicted.x}，实际 x=${actual.x}。这条真实轨迹已进证据表。`
+    : `它的模型说能过，真引擎结果不同：${trace.dead ? '跌落了' : `实际 x=${actual.x}，预测 x=${planned.predicted.x}`}。真实轨迹已进证据表，可以让它修模型。`;
+  saveLab(); update();
+}
 function advance() {
   if (paused || !ready || progress.won) return; tick++;
   const input = { move: Number(keys.right) - Number(keys.left), jump: keys.jump };
@@ -129,7 +148,7 @@ function advance() {
       if (--action.frames <= 0) queue.shift();
       if (pet.dead) { falls++; enabled = false; queue = []; status = '精灵跌落了。回去示范，或点击开始从出生点重试。'; }
       if (!queue.length) {
-        scoreLabPrediction();
+        if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
       }
     } else decide();
@@ -156,7 +175,8 @@ function nextWorld({ first = false } = {}) {
     confirmed: lab.notebook.filter(n => n.state === '确认').length, accuracy: { ...lab.accuracy }, calls: lab.calls }];
   const seed = Math.floor(Math.random() * 99999) + 1;
   lab = { index: first ? 1 : lab.index + 1, seed, world: labWorld(seed), notebook: carried, traces: [], prior: null, priorScore: null,
-    answer: null, pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: stats.slice(-8), calls: 0, adjusted: [] };
+    answer: null, pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: stats.slice(-8), calls: 0, adjusted: [],
+    worldModel: null, plan: null, modelRuns: [] };
   mode = 'lab'; cancel(); recording = null; idle();
   level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
   calls = falls = 0; feedback = ''; paused = false; $('#soundless-pause').textContent = '暂停';
@@ -206,11 +226,41 @@ function labReveal() {
   status = '这是这个世界的真相：对照一下它手册里写的，以及你自己按下去时的感觉。';
   update();
 }
+// 世界模型即代码：模型写一段 step()，服务端真的逐帧跑它，用量出来的误差驱动修复。
+async function labWriteModel() {
+  if (mode !== 'lab' || pending) return;
+  if (!lab.traces.length) { status = '先跑一次实验台或做一次示范，它才有数据可校准。'; return update(); }
+  $('#lab-model').disabled = true; pending = true;
+  status = '它正在把机制写成可执行代码；服务端会逐帧运行它并和真实记录比对。';
+  update();
+  try {
+    const result = await api('/api/jump/lab/model', { world: { name: labWorldName(), level }, traces: lab.traces.slice(-10), actor: pet, planTo: LAB_PLAN_TARGET }, AbortSignal.timeout(200000));
+    lab.calls++;
+    lab.worldModel = { code: result.code, verified: result.verified, matched: result.matched, frames: result.frames, error: result.error,
+      worst: result.worst, attempts: result.attempts, notes: result.notes, failure: result.failure, mismatches: result.mismatches };
+    lab.plan = result.plan && result.plan.length ? { actions: result.plan, predicted: result.predicted, target: result.planTo } : null;
+    status = result.verified
+      ? `世界模型逐帧跑通 ${result.frames} 帧、误差 0（用了 ${result.attempts} 次尝试）${lab.plan ? `；它还在自己的模型里搜出一条到 x=${result.planTo} 的路线。` : '；不过在模型里没搜到过坑路线。'}`
+      : `世界模型还没对上：${result.frames} 帧里错 ${result.frames - result.matched} 帧，最差偏差 ${result.worst} 倍容差（${result.attempts} 次尝试）${result.failure ? `，最后失败原因：${result.failure}` : ''}。`;
+    saveLab();
+  } catch (e) { status = e.message; }
+  finally { $('#lab-model').disabled = false; pending = false; update(); }
+}
+function labRunModelPlan() {
+  if (mode !== 'lab' || !lab.plan) { status = '还没有可用规划：先让它写出并通过验证的世界模型。'; return update(); }
+  cancel(); idle(); if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); }
+  modelPlan = { actions: lab.plan.actions.map(a => ({ ...a })), predicted: lab.plan.predicted, start: { ...pet } };
+  queue = validateChannelActions(modelPlan.actions).map(a => ({ ...a }));
+  enabled = true; calls = 0; paused = false; feedback = '';
+  status = '正在按它自己模型里的路线走；真实引擎会告诉它模型对不对。';
+  update();
+}
 function updateLab() {
   if (!lab.world) {
     $('#lab-world').textContent = '还没开始';
     $('#lab-notebook').textContent = '还没有进入实验室。';
     $('#lab-score').textContent = '点“进入实验室”抽第一个世界。';
+    $('#lab-model-out').textContent = '';
     $('#lab-answer').textContent = '';
     return;
   }
@@ -222,7 +272,11 @@ function updateLab() {
   const accuracy = lab.accuracy.total ? `${Math.round(lab.accuracy.hits / lab.accuracy.total * 100)}%（${lab.accuracy.hits}/${lab.accuracy.total}）` : '还没有下过预测';
   const prior = lab.priorScore ? `${lab.priorScore.hits}/${lab.priorScore.total} 命中 · ${lab.priorScore.rows.map(r => `${r.channel}=${roleName(r.guessed)}`).join(' ')}` : '还没测';
   const history = lab.stats.map(s => `世界 ${s.index}：实验 ${s.experiments} 次 · 确认 ${s.confirmed} 条 · 预测 ${s.accuracy.total ? `${Math.round(s.accuracy.hits / s.accuracy.total * 100)}%` : '—'}`).join('　');
-  $('#lab-score').textContent = `先验猜测 ${prior}　|　模型调用 ${lab.calls} 次　|　引擎实验 ${lab.traces.filter(t => t.origin === 'engine').length} 次 · 你的示范 ${lab.traces.filter(t => t.origin === 'human').length} 次　|　确认条目 ${confirmed}/${notes.length}　|　预测命中 ${accuracy}${history ? `　|　${history}` : ''}`;
+  const runs = lab.modelRuns || [], hits = runs.filter(r => r.hit).length;
+  $('#lab-score').textContent = `先验猜测 ${prior}　|　模型调用 ${lab.calls} 次　|　引擎实验 ${lab.traces.filter(t => t.origin === 'engine').length} 次 · 你的示范 ${lab.traces.filter(t => t.origin === 'human').length} 次 · 它自己跑的 ${lab.traces.filter(t => t.origin === 'self').length} 次　|　确认条目 ${confirmed}/${notes.length}　|　预测命中 ${accuracy}${runs.length ? `　|　世界模型规划过坑 ${hits}/${runs.length} 次为真` : ''}${history ? `　|　${history}` : ''}`;
+  $('#lab-model-out').textContent = lab.worldModel
+    ? `${lab.worldModel.verified ? '✓ 通过' : '✗ 未通过'}：逐帧比对 ${lab.worldModel.frames} 帧，对上 ${lab.worldModel.matched} 帧，最差偏差 ${lab.worldModel.worst} 倍容差，共 ${lab.worldModel.attempts} 次尝试${lab.worldModel.notes ? `　它自己读出的关键数字：${lab.worldModel.notes}` : ''}${lab.plan ? `　|　模型内规划：到 x=${lab.plan.target} 共 ${lab.plan.actions.length} 段，预测落点 x=${lab.plan.predicted?.x}` : ''}\n${lab.worldModel.code}`
+    : '还没有世界模型。点“④ 写成可执行世界模型”，它会写一段 step() 代码，服务端逐帧跑它并对答案。';
   $('#lab-answer').textContent = lab.answer
     ? `真相：${Object.entries(lab.answer.mapping).map(([channel, role]) => `${channel}=${roleName(role)}`).join('　')}　·　速度 ${lab.answer.physics.speed} · 重力 ${lab.answer.physics.gravity} · 跳跃力度 ${lab.answer.physics.jump} · 短跳截断 ${lab.answer.physics.cut}`
     : '';
@@ -305,8 +359,10 @@ $('#lab-battery').addEventListener('click', labBattery);
 $('#lab-induce').addEventListener('click', labInduce);
 $('#lab-try').addEventListener('click', start);
 $('#lab-reveal').addEventListener('click', labReveal);
+$('#lab-model').addEventListener('click', labWriteModel);
+$('#lab-run-model').addEventListener('click', labRunModelPlan);
 $('#lab-next').addEventListener('click', () => nextWorld());
-$('#lab-forget').addEventListener('click', () => { cancel(); lab = { ...lab, notebook: [], traces: [], prior: null, priorScore: null, answer: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [] }; saveLab(); status = '这只精灵的机制手册和实验记录已清空，世界没有换。'; update(); });
+$('#lab-forget').addEventListener('click', () => { cancel(); lab = { ...lab, notebook: [], traces: [], prior: null, priorScore: null, answer: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [], worldModel: null, plan: null, modelRuns: [] }; saveLab(); status = '这只精灵的机制手册、实验记录和世界模型已清空，世界没有换。'; update(); });
 $('#teach').addEventListener('click', teach);
 $('#finish-demo').addEventListener('click', () => { finishDemo(); start(); });
 $('#retry-pet').addEventListener('click', start);

@@ -8,9 +8,16 @@ export const CHANNELS = Object.freeze(['a', 'b', 'c']);
 export const ROLES = Object.freeze(['left', 'right', 'jump']);
 // Plausible platformer numbers, drawn once per world and never written into a prompt.
 export const RANGES = Object.freeze({ speed: [2.8, 3.8], gravity: [.45, .65], jump: [-13.5, -10.5], cut: [-6.5, -2.5] });
-export const MAX_TRACES = 60, MAX_NOTEBOOK = 24, CONFIRM_EVIDENCE = 3, SAMPLE_EVERY = 5, MAX_TRACE_FRAMES = 600;
+export const MAX_TRACES = 60, MAX_NOTEBOOK = 24, CONFIRM_EVIDENCE = 3, SAMPLE_EVERY = 1, DENSE_FRAMES = 0, MAX_TRACE_FRAMES = 600;
+// Where a world-model plan tries to get to: just past the pit on the right platform.
+export const LAB_PLAN_TARGET = 520;
+export const TRACE_ORIGINS = Object.freeze(['engine', 'human', 'self']);
 
 const round1 = v => Math.round(v * 10) / 10;
+// Samples keep three decimals: the constants of a world (per-frame speed, gravity, jump
+// impulse) have to be readable from the differences of consecutive frames, and rounding
+// them to a tenth makes an exactly reproducible model impossible to write.
+const exact = v => Math.round(v * 1000) / 1000;
 
 export function validatePhysics(raw) {
   const physics = {};
@@ -74,7 +81,7 @@ export function roleInputToChannels(world, input) {
   return Object.fromEntries(CHANNELS.map(channel => [channel, active.includes(world.mapping[channel])]));
 }
 
-const snapshot = a => ({ x: round1(a.x), y: round1(a.y), vy: round1(a.vy), grounded: a.grounded === true });
+const snapshot = a => ({ x: exact(a.x), y: exact(a.y), vy: exact(a.vy), grounded: a.grounded === true });
 export function runExperiment(world, { id, segments, origin = 'engine', start = null, note = '', role = 'pet' }) {
   const proto = validateChannelActions(segments, MAX_TRACE_FRAMES);
   const a = start ? { ...start } : actor(world.level.spawn), p = progress();
@@ -82,11 +89,20 @@ export function runExperiment(world, { id, segments, origin = 'engine', start = 
   let t = 0;
   for (const segment of proto) for (let i = 0; i < segment.frames && !a.dead; i++) {
     step(a, channelInput(world, segment), world.level, p, role, world.physics);
-    if (++t % SAMPLE_EVERY === 0) samples.push({ t, ...snapshot(a) });
+    // Every frame is recorded. Landing and the release-shortened jump both happen inside a
+    // single frame, so a sparser table hides exactly the two rules hardest to guess.
+    if (++t <= DENSE_FRAMES || t % SAMPLE_EVERY === 0) samples.push({ t, ...snapshot(a) });
   }
   if (samples.at(-1).t !== t) samples.push({ t, ...snapshot(a) });
+  // Trailing frames where nothing changes (standing still after landing) carry no evidence
+  // and would dominate the prompt; keep a few so "held 75 frames and did not move" stays visible.
+  while (samples.length > 3) {
+    const last = samples.at(-1), before = samples.at(-2);
+    if (last.grounded && before.grounded && last.x === before.x && last.y === before.y && last.vy === before.vy) samples.pop();
+    else break;
+  }
   const first = samples[0], last = samples.at(-1);
-  return { id: String(id).slice(0, 60), origin: origin === 'human' ? 'human' : 'engine', note: String(note).slice(0, 120), segments: proto,
+  return { id: String(id).slice(0, 60), origin: TRACE_ORIGINS.includes(origin) ? origin : 'engine', note: String(note).slice(0, 120), segments: proto,
     frames: t, dead: a.dead === true, samples, delta: { x: round1(last.x - first.x), y: round1(last.y - first.y) },
     progress: { coins: [...p.coins], key: p.key, switchOn: p.switchOn, won: p.won } };
 }
