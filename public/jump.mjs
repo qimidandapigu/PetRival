@@ -13,6 +13,11 @@ let mode = 'classic', labStorageKey = 'petrival.jump.lab.v1.guest';
 let lab = { index: 1, seed: 0, world: null, notebook: [], traces: [], prior: null, priorScore: null, answer: null,
   pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: [], calls: 0, adjusted: [], worldModel: null, plan: null, modelRuns: [], log: [] };
 let modelPlan = null;
+// Split view keeps one camera per pane over the same world, so the pet and you stay visible
+// at once. Rounds exist so demonstrating repeatedly does not wipe what the pet has learned.
+let splitView = true, cameraPet = 0, cameraHuman = 0, roundIndex = 1, roundDemos = 0, autoRound = false, fallTick = -1;
+const viewKey = 'petrival.jump.split.v1';
+function saveView() { try { localStorage.setItem(viewKey, JSON.stringify({ splitView, autoRound })); } catch {} }
 // The log is the only place the player can see what actually happened, so every step writes
 // a line here: free engine work, paid model calls, what changed, and what it cost.
 function logEvent(kind, text) {
@@ -56,12 +61,30 @@ async function init() {
   labStorageKey = storageKey.replace('jump.v2', 'jump.lab.v1');
   try { const stored = JSON.parse(localStorage.getItem(storageKey) || '[]'); samples = (Array.isArray(stored) ? stored : []).slice(-8).filter(d => { try { validateLevel(d.level); validateActions(d.actions); return d.from && d.to; } catch { return false; } }); } catch {}
   try { loadLab(JSON.parse(localStorage.getItem(labStorageKey) || 'null')); } catch {}
+  try { const view = JSON.parse(localStorage.getItem(viewKey) || 'null');
+    if (view) { splitView = view.splitView !== false; autoRound = view.autoRound === true; } } catch {}
+  $('#split').checked = splitView; $('#auto-round').checked = autoRound;
   ready = true; update();
 }
 function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; }
+// A round reset moves both of you back to the spawn and clears the objective, and keeps
+// every trace, notebook entry and world model: that is what makes repeated demonstrating
+// useful instead of starting the learning over.
+function restartRound(reason = '') {
+  if (recording) finishDemo();
+  cancel(); idle(); recording = null;
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
+  calls = falls = 0; feedback = ''; paused = false; fallTick = -1; roundIndex++; roundDemos = 0;
+  $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
+  status = `第 ${roundIndex} 轮${reason}：位置和目标重置，${mode === 'lab' ? '机制手册、实验记录和世界模型都保留' : '你的示范笔记保留'}。可以「回去示范」。`;
+  logEvent('round', `第 ${roundIndex} 轮重开${reason}：${mode === 'lab' ? `手册 ${summarizeNotebook(lab.notebook).length} 条、实验 ${lab.traces.length} 次、累计模型调用 ${lab.calls} 次全部保留` : `已存 ${samples.length} 次示范`}`);
+  if (mode === 'lab') saveLab();
+  update(); canvas.focus();
+}
 function resetLevel(next = level) {
   cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
-  calls = falls = 0; feedback = ''; paused = false; $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
+  calls = falls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; fallTick = -1;
+  $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
 async function decide() {
   if (!enabled || pending || paused || recording || progress.won || pet.dead) return;
@@ -102,6 +125,7 @@ function teach() {
 }
 function finishDemo() {
   if (!recording) return;
+  if (recording.actions.length) roundDemos++;
   if (recording.actions.length && mode === 'lab' && lab.world) {
     const segments = [];
     for (const action of recording.actions) {
@@ -160,7 +184,7 @@ function advance() {
     if (queue.length) {
       const action = queue[0]; step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics());
       if (--action.frames <= 0) queue.shift();
-      if (pet.dead) { falls++; enabled = false; queue = []; status = '精灵跌落了。回去示范，或点击开始从出生点重试。'; }
+      if (pet.dead) { falls++; enabled = false; queue = []; fallTick = tick; status = '精灵跌落了。回去示范，或点击开始从出生点重试。'; }
       if (!queue.length) {
         if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
@@ -168,6 +192,9 @@ function advance() {
     } else decide();
   }
   if (progress.won) { enabled = false; status = '小精灵亲自收齐金币、取钥匙、开门并到达终点。'; idle(); }
+  // The fall stays on screen for a moment, then a round reset puts you both back at the
+  // spawn so the next demonstration can start immediately.
+  if (pet.dead && autoRound && fallTick >= 0 && tick - fallTick > 90) restartRound('（它摔了，自动重开）');
   if (tick % 6 === 0) update();
 }
 async function generate() {
@@ -333,11 +360,12 @@ function updateLab() {
     ? [...lab.log].reverse().map(entry => `[${when(entry.at)}] ${LOG_KINDS[entry.kind] || entry.kind}｜${entry.text}`).join('\n')
     : '还没有记录。按「② 跑实验台」开始，它每一步都会写在这里。';
 }
-const LOG_KINDS = { world: '世界', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败' };
+const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败' };
 function update() {
   $('#level-title').textContent = level.title;
   $('#objective').textContent = `精灵金币 ${progress.coins.length}/${level.coins.length} · ${progress.key ? '已取钥匙' : '先取钥匙'} · ${progress.switchOn ? '门已开' : '回头开机关'}`;
   $('#pet-status').textContent = paused ? '已暂停。' : status; $('#attempts').textContent = `模型 ${calls}/16 次 · 跌落 ${falls} 次`;
+  $('#round-info').textContent = `第 ${roundIndex} 轮 · 本轮示范 ${roundDemos} 次`;
   $('#lesson-count').textContent = `${samples.length} 次示范`; $('#learning-note').textContent = recording ? '正在录制你的真实按键。' : '最近 4 次示范会作为上下文送给模型，未修改模型权重。';
   $('#lessons').textContent = samples.slice(-4).map((s, i) => `${i + 1}. ${s.level.title} · ${s.outcome === 'fell' ? '跌落反例' : '操作示范'}`).join('　');
   $('#finish-demo').hidden = !recording; $('#finish').hidden = !progress.won; $('#retry-pet').disabled = !ready || pending;
@@ -345,8 +373,8 @@ function update() {
 }
 function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
 function label(text, x, y, color = '#42624e', size = 14) { ctx.fillStyle = color; ctx.font = `600 ${size}px system-ui`; ctx.textAlign = 'center'; ctx.fillText(text, x, y); }
-function drawActor(a, isPet) {
-  const x = a.x - cameraX, y = a.y;
+function drawActor(a, isPet, cam) {
+  const x = a.x - cam, y = a.y;
   if (x < -50 || x > canvas.width + 50) return;
   ctx.save(); ctx.globalAlpha = isPet ? 1 : .78;
   rect(x - 14, Math.min(y, 400) + 1, 28, 4, '#25493725');
@@ -359,24 +387,44 @@ function drawActor(a, isPet) {
   }
   label(isPet ? petName : '你', x, y - (isPet ? 48 : 51), isPet ? '#39683c' : '#396c88', 13); ctx.restore();
 }
+const PANE_HEIGHT = 470;
+function cameraFor(x, width) { return Math.max(0, Math.min(Math.max(0, level.width - width + 30), x - width * .42)); }
+// One camera per pane over the same world: the pet on top, you below. Both panes draw both
+// actors, so you can always see how far apart you are while each keeps its own framing.
+function drawPane(top, cam, focus) {
+  const width = canvas.width;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, top, width, PANE_HEIGHT); ctx.clip(); ctx.translate(0, top);
+  rect(0, 0, width, PANE_HEIGHT, '#dceee3');
+  for (let i = 0; i < 9; i++) { const x = i * 190 - cam * .3; rect(x, 285, 170, 110, '#c5dcbd'); rect(x + 30, 240, 100, 50, '#c5dcbd'); rect(x + 20, 75 + i % 3 * 20, 75, 15, '#f6f9e8'); }
+  rect(0, 415, width, 55, '#7dbdb7');
+  for (const p of level.platforms) { rect(p.x - cam, p.y, p.w, p.y === 400 ? 70 : 20, '#bbad82'); rect(p.x - cam, p.y, p.w, 8, '#63915c'); }
+  level.coins.forEach((coin, i) => { if (!progress.coins.includes(i)) { rect(coin.x - cam - 6, coin.y - 8, 12, 16, '#f4cf62'); rect(coin.x - cam - 1, coin.y - 5, 3, 10, '#bd853b'); } });
+  if (!progress.key) { label('⚿', level.key.x - cam, level.key.y + 5, '#ad752e', 26); label('钥匙', level.key.x - cam, level.key.y - 25, '#6c7446', 12); }
+  const sx = level.switch.x - cam; rect(sx - 14, level.switch.y + 3, 28, 9, progress.switchOn ? '#71ad63' : '#d7a152');
+  label(progress.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
+  if (!progress.switchOn) { rect(level.door.x - cam - 8, level.door.y, 16, level.door.h, '#8c7966'); label('锁门', level.door.x - cam, level.door.y - 12, '#655444', 12); }
+  rect(level.goal.x - cam - 3, level.goal.y - 70, 6, 70, '#557156'); rect(level.goal.x - cam + 3, level.goal.y - 70, 30, 20, '#eccb71');
+  label('终点', level.goal.x - cam, level.goal.y - 82);
+  drawActor(human, false, cam); if (!pet.dead) drawActor(pet, true, cam);
+  label(focus === 'pet' ? `镜头跟${petName}` : '镜头跟你', width - 66, 22, '#3c6450', 13);
+  ctx.restore();
+}
 function draw() {
   const width = Math.max(500, Math.round(canvas.clientWidth)); if (canvas.width !== width) canvas.width = width;
-  const target = $('#camera').value === 'pet' ? pet : human;
-  cameraX += (Math.max(0, Math.min(Math.max(0, level.width - width + 30), target.x - width * .42)) - cameraX) * .12;
-  rect(0, 0, width, 470, '#dceee3');
-  for (let i = 0; i < 9; i++) { const x = i * 190 - cameraX * .3; rect(x, 285, 170, 110, '#c5dcbd'); rect(x + 30, 240, 100, 50, '#c5dcbd'); rect(x + 20, 75 + i % 3 * 20, 75, 15, '#f6f9e8'); }
-  rect(0, 415, width, 55, '#7dbdb7');
-  for (const p of level.platforms) { rect(p.x - cameraX, p.y, p.w, p.y === 400 ? 70 : 20, '#bbad82'); rect(p.x - cameraX, p.y, p.w, 8, '#63915c'); }
-  level.coins.forEach((coin, i) => { if (!progress.coins.includes(i)) { rect(coin.x - cameraX - 6, coin.y - 8, 12, 16, '#f4cf62'); rect(coin.x - cameraX - 1, coin.y - 5, 3, 10, '#bd853b'); } });
-  if (!progress.key) { label('⚿', level.key.x - cameraX, level.key.y + 5, '#ad752e', 26); label('钥匙', level.key.x - cameraX, level.key.y - 25, '#6c7446', 12); }
-  const sx = level.switch.x - cameraX; rect(sx - 14, level.switch.y + 3, 28, 9, progress.switchOn ? '#71ad63' : '#d7a152');
-  label(progress.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
-  if (!progress.switchOn) { rect(level.door.x - cameraX - 8, level.door.y, 16, level.door.h, '#8c7966'); label('锁门', level.door.x - cameraX, level.door.y - 12, '#655444', 12); }
-  rect(level.goal.x - cameraX - 3, level.goal.y - 70, 6, 70, '#557156'); rect(level.goal.x - cameraX + 3, level.goal.y - 70, 30, 20, '#eccb71');
-  label('终点', level.goal.x - cameraX, level.goal.y - 82);
-  drawActor(human, false); if (!pet.dead) drawActor(pet, true);
+  const height = splitView ? PANE_HEIGHT * 2 : PANE_HEIGHT; if (canvas.height !== height) canvas.height = height;
+  if (splitView) {
+    cameraPet += (cameraFor(pet.x, width) - cameraPet) * .12;
+    cameraHuman += (cameraFor(human.x, width) - cameraHuman) * .12;
+    drawPane(0, cameraPet, 'pet');
+    drawPane(PANE_HEIGHT, cameraHuman, 'human');
+    rect(0, PANE_HEIGHT - 4, width, 4, '#6f8f7c');
+  } else {
+    const target = $('#camera').value === 'pet' ? pet : human;
+    cameraX += (cameraFor(target.x, width) - cameraX) * .12;
+    drawPane(0, cameraX, $('#camera').value);
+  }
   if (pending) label('模型观察中 · 你可以继续', width / 2, 30, '#3c6450', 15);
-  if (paused) { rect(0, 0, width, 470, '#eef4e299'); label('暂停练习', width / 2, 215, '#2f5545', 25); }
+  if (paused) { rect(0, 0, width, canvas.height, '#eef4e299'); label('暂停练习', width / 2, canvas.height / 2, '#2f5545', 25); }
 }
 function frame(time) {
   const elapsed = Math.min((time - previousTime) / 1000 || 0, .1); previousTime = time;
@@ -420,7 +468,9 @@ $('#lab-forget').addEventListener('click', () => { cancel(); lab = { ...lab, not
 $('#teach').addEventListener('click', teach);
 $('#finish-demo').addEventListener('click', () => { finishDemo(); start(); });
 $('#retry-pet').addEventListener('click', start);
-$('#restart').addEventListener('click', () => { resetLevel(); canvas.focus(); });
+$('#restart').addEventListener('click', () => restartRound());
+$('#split').addEventListener('change', event => { splitView = event.target.checked; saveView(); update(); });
+$('#auto-round').addEventListener('change', event => { autoRound = event.target.checked; saveView(); update(); });
 $('#soundless-pause').addEventListener('click', () => { paused = !paused; idle(); $('#soundless-pause').textContent = paused ? '继续' : '暂停'; update(); canvas.focus(); });
 $('#generate').addEventListener('click', generate);
 $('#use-level').addEventListener('click', () => { if (prepared) { resetLevel(prepared.level); $('#level-source').textContent = `大模型生成 · ${prepared.model} · 物理验证通过`; prepared = null; $('#use-level').hidden = true; } });

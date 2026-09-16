@@ -16,8 +16,11 @@ test('every element the jump page drives exists in jump.html',()=>{
  for(const module of ['./jump-world.mjs','./jump-lab.mjs'])assert.ok(source.includes(`from '${module}'`),`jump.mjs must import ${module}`);
 });
 async function fixture(){
- const nodes=new Map(),events=new Map(),saved=new Map(),waiting=new Map();
- const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#camera'?'human':'',hidden:true,disabled:false,textContent:'',dataset:{},addEventListener(t,h){this[t]=h;},focus(){},closest(){return null;},getContext(){return {};},clientWidth:900});return nodes.get(id);};
+ const nodes=new Map(),events=new Map(),saved=new Map(),waiting=new Map(),ops=[];
+ const record={fillRect:(...a)=>ops.push(['fillRect',...a]),save:()=>ops.push(['save']),restore:()=>ops.push(['restore']),
+   beginPath:()=>ops.push(['beginPath']),rect:(...a)=>ops.push(['rect',...a]),clip:()=>ops.push(['clip']),
+   translate:(...a)=>ops.push(['translate',...a]),fillText:(...a)=>ops.push(['fillText',...a])};
+ const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#camera'?'human':'',hidden:true,disabled:false,checked:false,textContent:'',dataset:{},addEventListener(t,h){this[t]=h;},focus(){},closest(){return null;},getContext(){return id==='#jump-canvas'?record:{};},clientWidth:900});return nodes.get(id);};
  const answer=(path,data)=>{const queue=waiting.get(path);assert.ok(queue&&queue.length,`no pending ${path}`);queue.shift()({ok:true,status:200,json:async()=>data});};
  const context=vm.createContext({...engine,...lab,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
  document:{querySelector:node,querySelectorAll:()=>[],addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
@@ -26,9 +29,9 @@ async function fixture(){
    return new Promise(resolve=>{const queue=waiting.get(path)||[];queue.push(resolve);waiting.set(path,queue);queue.body=JSON.parse(opts.body);});
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,get:()=>({human,pet,progress,samples,queue,enabled,pending,mode,lab,level,status})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,draw,fall:()=>{pet.dead=true;fallTick=tick;},get:()=>({human,pet,progress,samples,queue,enabled,pending,mode,lab,level,status,splitView,autoRound,roundIndex,roundDemos,tick})};',context);
  await flush();
- return {api:context.fixture,saved,waiting,node,answer,body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
+ return {api:context.fixture,saved,waiting,node,answer,ops,canvas:node('#jump-canvas'),body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
 }
 test('a blank world starts with nothing: no notebook, no traces, and the battery is free',async()=>{
  const f=await fixture();f.api.nextWorld({first:true});
@@ -151,4 +154,52 @@ test('the learning log and the "what it knows" panel show every step in plain la
  const revealed=f.node('#lab-knows').textContent;
  assert.equal(revealed.includes('通道 a'),true);
  assert.equal(f.api.get().lab.log.some(e=>e.kind==='reveal'),true);
+});
+test('split view draws two clipped panes, one camera per player',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});
+ assert.equal(f.api.get().splitView,true,'the pet-on-top view is the default');
+ f.api.draw();
+ assert.equal(f.ops.filter(o=>o[0]==='clip').length,2,'one clipped pane per player');
+ assert.deepEqual(f.ops.filter(o=>o[0]==='translate').map(o=>o[2]),[0,470]);
+ assert.equal(f.canvas.height,940);
+ assert.equal(f.ops.filter(o=>o[0]==='fillText'&&String(o[1]).includes('镜头')).length,2);
+ f.node('#split').change({target:{checked:false}});
+ f.api.draw();
+ assert.equal(f.api.get().splitView,false);
+ assert.equal(f.canvas.height,470);
+ assert.equal(f.ops.filter(o=>o[0]==='clip').length,3,'single pane adds one clip');
+ assert.equal(JSON.parse(f.saved.get('petrival.jump.split.v1')).splitView,false);
+});
+test('a round restart keeps everything learned and clears only positions and goals',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});f.api.labBattery();
+ const induction=f.api.labInduce();
+ f.answer('/api/jump/lab/induce',{method:'model',model:'fixture',notebook:[{id:'n1',claim:'按住 a 让精灵向右移动',state:'确认',evidence:['x','y','z'],confidence:.9}],confirmed:1,learned:1,adjusted:[],nextExperiment:null,experiments:9,latencyMs:12});
+ await induction;
+ f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<15;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
+ const before=f.api.get();
+ assert.equal(before.roundDemos,1);
+ before.pet.x=520;
+ f.api.restartRound();
+ const after=f.api.get();
+ assert.equal(after.lab.notebook.length,1,'the notebook survives a round restart');
+ assert.equal(after.lab.traces.length,before.lab.traces.length,'the traces survive too');
+ assert.equal(after.pet.x,after.level.spawn.x);
+ assert.equal(after.human.x,after.level.spawn.x);
+ assert.equal(after.progress.coins.length,0);
+ assert.equal(after.progress.key,false);
+ assert.equal(after.roundIndex,2);assert.equal(after.roundDemos,0);
+ assert.equal(after.lab.log.some(e=>e.kind==='round'&&e.text.includes('保留')),true);
+ assert.equal(f.node('#round-info').textContent.includes('第 2 轮'),true);
+});
+test('the pet falling can auto-restart the round so demonstrating can continue',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});
+ f.node('#auto-round').change({target:{checked:true}});
+ assert.equal(f.api.get().autoRound,true);
+ f.api.fall();
+ for(let i=0;i<95;i++)f.api.advance();
+ const s=f.api.get();
+ assert.equal(s.pet.dead,false,'the round restarts');
+ assert.equal(s.roundIndex,2);
+ assert.equal(s.pet.x,s.level.spawn.x);
+ assert.equal(JSON.parse(f.saved.get('petrival.jump.split.v1')).autoRound,true);
 });

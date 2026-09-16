@@ -64,3 +64,7 @@ Adds `/api/jump/lab/model`, which has the model write `step(state, action, level
 ## Learning log update
 
 The lab now writes a browser-local learning log (one line per step, with which steps were free and which cost a model call) and a plain-language "what it knows" panel (per-channel confirmed claims, still-unknown channels, and a ✓/✗ reading against the revealed truth). `/api/jump/lab/model` reports every repair round, so a stalled loop is visible instead of silent. No schema change, no identity or reward change, no new runtime gap. 190 Node + 40 cloud tests, syntax scan and build passed. Not published; still v17.
+
+## Split view update
+
+The jump page now renders two clipped panes over the same world by default (pet on top, the human below), each with its own camera, so both players stay visible when they separate; unchecking the box returns to the previous single-camera mode. A "restart round (keep learning)" action resets positions and the level objective while keeping the notebook, traces, world model and demonstrations, and an opt-in setting restarts the round about 1.5s after the pet falls. Client-only: no route, schema, identity or reward change, and both runtimes serve identical assets. 193 Node + 40 cloud tests, syntax scan and build passed. Not published; still v17. See [behavior and limits](JUMP-SPLIT-VIEW-2026-09-15.md).
