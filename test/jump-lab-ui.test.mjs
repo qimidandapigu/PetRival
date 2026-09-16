@@ -30,7 +30,7 @@ async function fixture(){
  const dom=(tag)=>{const el={tagName:tag,className:'',_text:'',dataset:{},children:[],disabled:false,attributes:{},
    get textContent(){return textOf(this);},set textContent(v){this._text=String(v);this.children=[];},
    addEventListener(t,h){this[t]=h;},setAttribute(k,v){this.attributes[k]=v;},append(...kids){this.children.push(...kids);},
-   replaceChildren(...kids){this.children=kids;this._text='';},closest(){return null;}};return el;};
+   replaceChildren(...kids){this.children=kids;this._text='';},closest(sel){const attr=String(sel).replace(/[[\]]/g,''),key=attr.replace(/^data-/,'').replace(/-([a-z])/g,(m,c)=>c.toUpperCase());return this.dataset&&this.dataset[key]!==undefined?this:null;}};return el;};
  const node=id=>{if(!nodes.has(id))nodes.set(id,Object.assign(dom(id==='#jump-canvas'?'canvas':'div'),{value:id==='#camera'?'human':'',hidden:true,checked:false,focus(){},getContext(){return id==='#jump-canvas'?record:{};},clientWidth:900}));return nodes.get(id);};
  const answer=(path,data)=>{const queue=waiting.get(path);assert.ok(queue&&queue.length,`no pending ${path}`);queue.shift()({ok:true,status:200,json:async()=>data});};
  const context=vm.createContext({...engine,...lab,...jumpStages,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
@@ -40,7 +40,7 @@ async function fixture(){
    return new Promise(resolve=>{const queue=waiting.get(path)||[];queue.push(resolve);waiting.set(path,queue);queue.body=JSON.parse(opts.body);});
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,goToStage,draw,fall:()=>{pet.dead=true;petRespawnAt=tick+45;},get:()=>({human,pet,progress,humanProgress,samples,queue,enabled,pending,mode,lab,level,status,splitView,roundIndex,roundDemos,tick,humanFalls,humanWon,stageId,clearedStages,petWins,humanWins})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,goToStage,draw,fall:()=>{pet.dead=true;petRespawnAt=tick+45;},get:()=>({human,pet,progress,humanProgress,samples,queue,enabled,pending,mode,lab,level,status,splitView,roundIndex,roundDemos,tick,humanFalls,humanWon,stageId,clearedStages,petWins,humanWins,logFilter})};',context);
  await flush();
  return {api:context.fixture,saved,waiting,node,answer,ops,canvas:node('#jump-canvas'),body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
 }
@@ -275,11 +275,16 @@ test('the log renders and persists in the classic lesson too, without a lab worl
  for(let i=0;i<50;i++)f.api.advance();
  assert.equal(f.api.get().lab.log.some(e=>e.kind==='fall'),true,'a fall in the classic lesson is logged');
  assert.equal(f.node('#lab-log').textContent.includes('跌落'),true);
- assert.equal(f.node('#lab-knows').textContent.includes('还没有通过任何一关'),true,'the right column shows the ladder state');
- assert.equal(f.node('#lab-knows').textContent.includes('当前第 1 关'),true);
+ assert.equal(f.node('#lab-knows').textContent.includes('模型权重不会变'),true,'the right column explains the mechanism');
+ assert.equal(f.node('#lab-knows').textContent.includes('【示范记忆】'),true);
+ assert.equal(f.node('#lab-knows').textContent.includes('【本次变化】'),true);
+ assert.equal(f.node('#lab-knows').textContent.includes('【这一关】'),true);
  f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<10;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
  assert.equal(f.api.get().lab.log.some(e=>e.kind==='demo'&&e.text.includes('示范课')),true,'a classic demonstration is logged');
  assert.equal(f.node('#lab-log').textContent.includes('你的示范'),true);
+ const memory=f.node('#lab-knows').textContent;
+ assert.equal(memory.includes('新增 1 条'),true,'storing a demonstration is shown as a memory change');
+ assert.equal(memory.includes('x=')&&memory.includes('10 帧'),true,'the stored demonstration is listed with its frames');
 });
 test('the ladder starts at walk-right and unlocks the next stage when either side clears it',async()=>{
  const f=await fixture();
@@ -309,4 +314,27 @@ test('the ladder starts at walk-right and unlocks the next stage when either sid
  assert.equal(f.api.get().pet.x,f.api.get().level.spawn.x);
  assert.equal(JSON.parse(f.saved.get('petrival.jump.stage.v1.pet.p')).stageId,2,'the ladder position is remembered');
  assert.equal(f.node('#level-source').textContent.includes('课程第 2 关'),true);
+});
+test('the log records what the model chose, and the filter can narrow it to exactly that',async()=>{
+ const f=await fixture();
+ f.api.start();
+ const payload=f.body('/api/jump/decision');
+ assert.equal(payload.level.title,'第 1 关 · 先学会走');
+ f.answer('/api/jump/decision',{method:'model',model:'fixture',latencyMs:12,goal:'走到坑边',usedDemonstrations:[],demonstrationsProvided:0,
+   actions:[{move:1,jump:false,frames:20},{move:1,jump:true,frames:8}]});
+ await flush();
+ const choice=f.api.get().lab.log.find(e=>e.kind==='choice');
+ assert.ok(choice,'a choice line is written for every model call');
+ assert.equal(choice.text.includes('看到'),true,'it says what situation the model was shown');
+ assert.equal(choice.text.includes('x=48'),true,'the situation includes where the pet stands');
+ assert.equal(choice.text.includes('它选择：向右 20 帧，向右 + 跳 8 帧'),true,'it says exactly which keys it picked');
+ assert.equal(choice.text.includes('目标「走到坑边」'),true);
+ assert.equal(f.node('#lab-log').textContent.includes('它选择'),true);
+ const filters=f.node('#log-filter');
+ assert.equal(filters.children.length,4);
+ assert.equal(filters.children[1].textContent,'只看它的选择');
+ f.node('#log-filter').click({target:filters.children[1]});
+ assert.equal(f.api.get().logFilter,'choice');
+ assert.equal(f.node('#lab-log').textContent.includes('它选择'),true);
+ assert.equal(f.node('#lab-log').textContent.includes('行动'),false,'the plumbing is filtered out');
 });

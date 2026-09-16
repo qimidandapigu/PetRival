@@ -9,7 +9,7 @@ let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', stora
 let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
 let queue = [], calls = 0, falls = 0, humanFalls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
 let status = '第 1 关只要一直往右走。点开始让小精灵自己试，或你亲自走一遍给它看。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false;
-let lastGoal = '', petWins = 0, humanWins = 0;
+let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = true;
 function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins })); } catch {} }
 function loadStage(stored) {
   if (!stored) return;
@@ -39,6 +39,61 @@ function logEvent(kind, text) {
   // Persist on the event itself: a fall, a demonstration or a decision must survive a
   // reload even when nothing else in the lab changed.
   saveLab();
+}
+// What the pet can see right now, in the terms the decision is actually about: where it
+// stands, how far the ground runs, and what the last attempt ended as.
+function describeSituation() {
+  const under = level.platforms.find(p => pet.x >= p.x && pet.x <= p.x + p.w && Math.abs(p.y - pet.y) < 1);
+  const ahead = level.platforms.filter(p => p.x > pet.x).sort((a, b) => a.x - b.x)[0];
+  const parts = [`x=${Math.round(pet.x)} y=${Math.round(pet.y)} ${pet.grounded ? '落地' : `空中 vy=${pet.vy.toFixed(1)}`}`];
+  if (under) {
+    const edge = under.x + under.w - pet.x;
+    parts.push(ahead && ahead.y >= under.y ? `前方 ${Math.max(0, Math.round(edge))} 像素后是空隙` : `脚下平台还剩 ${Math.max(0, Math.round(edge))} 像素`);
+  } else parts.push('脚下没有平台');
+  parts.push(`金币 ${progress.coins.length}/${level.coins.length}`, progress.key ? '已取钥匙' : '未取钥匙', progress.switchOn ? '机关已开' : '机关未开');
+  return parts.join(' · ');
+}
+function describeActions(actions, learning) {
+  const channel = { a: 'A', b: 'B', c: 'C' };
+  return actions.map(a => {
+    if (learning) {
+      const on = ['a', 'b', 'c'].filter(k => a[k]).map(k => channel[k]);
+      return on.length ? `按住 ${on.join('+')} ${a.frames} 帧` : `松手 ${a.frames} 帧`;
+    }
+    const move = a.move === 1 ? '向右' : a.move === -1 ? '向左' : '不动';
+    return `${move}${a.jump ? ' + 跳' : ''} ${a.frames} 帧`;
+  }).join('，');
+}
+function describePrediction(p) {
+  return `${p.dy === 'up' ? '会升高' : p.dy === 'down' ? '会下落' : '高度不变'} / ${p.grounded ? '会落地' : '不会落地'} / ${p.dead ? '会摔死' : '不会摔死'}`;
+}
+// Memory is the only thing that changes between calls; the weights never do. Keeping the
+// previous snapshot lets the page show exactly what each call added, changed or dropped.
+function snapshotMemory(learning) {
+  if (learning) return summarizeNotebook(lab.notebook).map(n => ({ id: n.id, text: `${n.claim}（${n.state} · 证据 ${n.evidence.length} 条）` }));
+  return samples.map((s, i) => ({ id: s.id || `sample-${i}`,
+    text: `${s.level.title} · x=${Math.round(s.from.x)}→${Math.round(s.to.x)} ${s.outcome === 'fell' ? '摔了' : '成功'} ${s.actions.reduce((n, a) => n + a.frames, 0)} 帧` }));
+}
+function noteMemory(label, learning) {
+  const now = snapshotMemory(learning), before = Array.isArray(lab.memory) ? lab.memory : [];
+  const beforeIds = new Set(before.map(e => e.id)), nowIds = new Set(now.map(e => e.id));
+  const added = now.filter(e => !beforeIds.has(e.id)).map(e => e.text);
+  const changed = now.filter(e => { const old = before.find(b => b.id === e.id); return old && old.text !== e.text; })
+    .map(e => `${before.find(b => b.id === e.id).text} → ${e.text}`);
+  const dropped = before.filter(e => !nowIds.has(e.id)).map(e => e.text);
+  lab.memory = now;
+  lab.memoryLog = [...(lab.memoryLog || []), { at: Date.now(), label, added, changed, dropped, count: now.length }].slice(-8);
+}
+function memoryChangeLines() {
+  const entries = lab.memoryLog || [];
+  if (!entries.length) return ['· 还没有发生任何记忆变化。'];
+  return entries.slice(-3).reverse().map(entry => {
+    const bits = [];
+    if (entry.added.length) bits.push(`新增 ${entry.added.length} 条`);
+    if (entry.changed.length) bits.push(`改写 ${entry.changed.length} 条`);
+    if (entry.dropped.length) bits.push(`挤掉 ${entry.dropped.length} 条`);
+    return `· ${entry.label}：${bits.length ? bits.join(' · ') : '没有变化'}（现在 ${entry.count} 条）`;
+  });
 }
 const physics = () => mode === 'lab' && lab.world ? lab.world.physics : PHYSICS;
 const keys = { left: false, right: false, jump: false }, keyboard = new Set(), pointers = new Map();
@@ -94,6 +149,7 @@ function goToStage(id, reason = '') {
     return status = `第 ${target} 关还没解锁：先过第 ${target - 1} 关。`;
   cancel(); idle(); recording = null; stageId = target; level = stageLevel(target);
   human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  lab.memory = null; lab.memoryLog = [];
   calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; lastGoal = '';
   const info = stageInfo(target);
   $('#level-source').textContent = `课程第 ${target} 关 · 物理验证通过`;
@@ -142,12 +198,15 @@ async function decide() {
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
     queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions)).map(a => ({ ...a }));
-    if (learning) {
-      lab.calls++; lab.pending = result.prediction ? { prediction: result.prediction, start: { ...pet } } : null;
-      logEvent('act', `第 ${calls} 次决策（累计第 ${lab.calls} 次模型调用）：它给出 ${queue.length} 段按键、目标「${result.goal || '试探'}」，参考手册 ${result.notesProvided} 条${result.prediction ? '，并先下了预测' : '，没有给预测'}`);
-    } else {
-      logEvent('act', `示范课第 ${calls} 次决策：它给出 ${queue.length} 段按键、目标「${result.goal || '执行下一段'}」，参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范，耗时 ${(result.latencyMs / 1000).toFixed(1)} 秒`);
-    }
+    const injected = learning
+      ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
+      : { lines: [`示范 ${samples.slice(-4).length} 条`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };
+    // The log's job here is the decision itself: what it was shown, what it picked, what it
+    // expects — not the plumbing around the call.
+    logEvent('choice', `第 ${calls} 次选择：看到 ${describeSituation()}${feedback ? ` · 上次「${feedback.slice(0, 24)}…」` : ''} ｜ 记忆：${injected.lines.join(' + ')} ｜ 它选择：${describeActions(queue, learning)} ｜ 目标「${result.goal || (learning ? '试探这个世界' : '继续前进')}」${learning && result.prediction ? ` ｜ 预测：${describePrediction(result.prediction)}` : ''} ｜ ${(result.latencyMs / 1000).toFixed(1)} 秒`);
+    if (learning) lab.calls++;
+    if (learning) lab.pending = result.prediction ? { prediction: result.prediction, start: { ...pet } } : null;
+    noteMemory(`第 ${calls} 次选择`, learning);
     saveLab(); update();
     status = learning
       ? `${result.model}：${result.goal || '试探这个世界'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）· ${result.prediction ? '已先下预测' : '这次没给预测'}`
@@ -195,6 +254,7 @@ function finishDemo() {
     const { frames, ...sample } = recording; sample.to = { ...human }; sample.outcome = human.dead ? 'fell' : 'survived';
     samples.push(sample); samples = samples.slice(-8); save();
     logEvent('demo', `示范课：记录你 ${frames} 帧真实操作（${sample.outcome === 'fell' ? '跌落反例' : '存活'}），起点 x=${Math.round(sample.from.x)} → 终点 x=${Math.round(sample.to.x)}，花了 0 次模型调用`);
+    noteMemory('你的示范', false);
     status = '已记录你的真实操作。下一次模型会参考它；这不代表已经学会。';
   } else status = '这次没有操作，未保存示范。';
   recording = null; update();
@@ -400,9 +460,12 @@ function renderLog() {
   const when = at => { const d = new Date(at || Date.now());
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
   const box = $('#lab-log');
-  const entries = [...(lab.log || [])].reverse();
+  const selection = LOG_FILTERS[logFilter] || LOG_FILTERS.all;
+  const entries = [...(lab.log || [])].reverse().filter(entry => selection.includes(entry.kind));
   if (!entries.length) {
-    box.textContent = '还没有记录。它会记录：每关的进入与通关、先验猜测、免费实验台、你的示范、归纳、每一轮世界模型误差、规划与真跑、每次决策、预测打分、双方的跌落与复活、重开一轮、揭晓真相。';
+    box.textContent = (lab.log || []).length
+      ? '这个筛选下暂时没有记录，换一个筛选看看。'
+      : '还没有记录。它会记录：每一关的进入与通关、你的示范、模型每次做了什么选择（看到什么、选了什么、预测什么）、记忆因此变了什么、双方的跌落与复活。';
     return;
   }
   // One element per line so the time, the category chip and the text each keep their own
@@ -416,32 +479,37 @@ function renderLog() {
     return row;
   }));
 }
-// The right column answers "what has it learned so far" in both modes: in the lesson it is
-// the stage ladder and what the model is currently trying, in the lab it is the notebook.
-function renderKnows() {
-  if (!lab.world) {
-    const lines = [];
-    lines.push(clearedStages.length
-      ? `已经通过 ${clearedStages.length}/${STAGES.length} 关：${clearedStages.map(id => `第 ${id} 关「${stageInfo(id).name}」`).join('、')}`
-      : '还没有通过任何一关。第 1 关只要一直往右走。');
-    const info = stageInfo(stageId);
-    lines.push(`当前第 ${stageId} 关「${info.name}」：${info.skill}`);
-    lines.push(`它这一关：模型调用 ${calls}/16 次 · 跌落 ${falls} 次${lastGoal ? ` · 它现在想「${lastGoal}」` : ' · 还没开始'}`);
-    lines.push(`你这一关：金币 ${humanProgress.coins.length}/${level.coins.length} · ${humanProgress.key ? '已取钥匙' : '还没拿钥匙'} · ${humanProgress.switchOn ? '机关已开' : '机关没开'} · 跌落 ${humanFalls} 次`);
-    lines.push(`通关次数：它自己 ${petWins} 次 · 你 ${humanWins} 次`);
-    const last = samples[samples.length - 1];
-    lines.push(last ? `你的示范：${samples.length} 次（最近一次 ${last.outcome === 'fell' ? '摔了' : '成功'}，${last.actions.reduce((n, a) => n + a.frames, 0)} 帧）` : '你的示范：还没有。点「回去示范」，它下一次决策就会参考。');
-    lines.push(nextStage(stageId) && clearedStages.includes(stageId) ? `下一关：第 ${nextStage(stageId)} 关「${stageInfo(nextStage(stageId)).name}」（已解锁）` : '过掉这一关就会解锁下一关。');
-    $('#lab-knows').textContent = lines.join('\n');
-    return;
+// The right column is the memory itself: what is stored, what the next call will be given,
+// and what the last few calls changed. Weights never change, so this is the whole story.
+function renderMemory() {
+  const learning = !!lab.world;
+  const lines = [];
+  lines.push('模型权重不会变：每次调用都把下面这些重新塞进提示词。所以"学到"= 这里的内容变了。');
+  lines.push('');
+  lines.push(learning ? `【知识库】${lab.notebook.length} 条（每次送全部）` : `【示范记忆】${samples.length} 条（最多 8 条，每次只送最近 4 条）`);
+  const memory = Array.isArray(lab.memory) && lab.memory.length ? lab.memory : snapshotMemory(learning);
+  if (!memory.length) lines.push(learning ? '　还是空的：先做实验台或让它归纳。' : '　还是空的：点「回去示范」录一次，它下一次就会参考。');
+  else memory.slice(-10).forEach((entry, i) => lines.push(`　${i + 1}. ${entry.text}`));
+  lines.push('');
+  lines.push('【本次变化】');
+  lines.push(...memoryChangeLines());
+  if (learning) {
+    lines.push('');
+    lines.push(...labKnowsText().split('\n').filter(line => line.startsWith('通道') || line.startsWith('手册统计') || line.includes('世界模型')));
   }
-  $('#lab-knows').textContent = labKnowsText();
+  lines.push('');
+  lines.push('【这一关】');
+  lines.push(`　${learning ? `世界 ${lab.index}` : `第 ${stageId} 关「${stageInfo(stageId).name}」`}：模型调用 ${calls}/16 · 它跌落 ${falls} 次 · 你跌落 ${humanFalls} 次`);
+  lines.push(`　它现在想：「${lastGoal || '还没开始'}」`);
+  lines.push(`　通关：它自己 ${petWins} 次 · 你 ${humanWins} 次${clearedStages.length ? ` · 已通过 ${clearedStages.length}/${STAGES.length} 关` : ''}`);
+  $('#lab-knows').textContent = lines.join('\n');
 }
 function updateLab() {
   // The log belongs to the whole page, not to the lab: falls, rounds and demonstrations
   // happen in the classic lesson too, and the player must be able to read them there.
   renderLog();
-  renderKnows();
+  renderLogFilters();
+  renderMemory();
   if (!lab.world) {
     $('#lab-world').textContent = '还没开始';
     $('#lab-notebook').textContent = '还没有进入实验室。';
@@ -499,7 +567,25 @@ function renderStages() {
     return chip;
   }));
 }
-const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败', fall: '跌落', win: '通关' };
+const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', choice: '它选择', predict: '预测', reveal: '揭晓', error: '失败', fall: '跌落', win: '通关' };
+// The player asked for "what the model decided", so the log can be narrowed to exactly that
+// instead of making them read the plumbing around every call.
+const LOG_FILTERS = {
+  all: Object.keys(LOG_KINDS),
+  choice: ['choice', 'plan'],
+  memory: ['learn', 'induce', 'model', 'demo', 'battery', 'prior', 'world', 'round', 'reveal'],
+  trouble: ['error', 'fall', 'predict', 'win'],
+};
+function renderLogFilters() {
+  const bar = $('#log-filter');
+  bar.replaceChildren(...Object.entries({ all: '全部', choice: '只看它的选择', memory: '只看记忆变化', trouble: '只看出事与通关' }).map(([key, label]) => {
+    const chip = document.createElement('button');
+    chip.type = 'button'; chip.className = 'log-filter-chip'; chip.dataset.filter = key;
+    chip.setAttribute('aria-current', key === logFilter ? 'true' : 'false');
+    chip.textContent = label;
+    return chip;
+  }));
+}
 function update() {
   const side = (p, label) => `${label} 金币 ${p.coins.length}/${level.coins.length} · ${p.key ? '已取钥匙' : '先取钥匙'} · ${p.switchOn ? '门已开' : '回头开机关'}${p.won ? ' · 已通关' : ''}`;
   $('#level-title').textContent = level.title;
@@ -600,6 +686,15 @@ function enterLab() {
 $('#stage-bar').addEventListener('click', event => {
   const chip = event.target.closest('[data-stage]');
   if (chip && !chip.disabled) goToStage(Number(chip.dataset.stage));
+});
+$('#log-filter').addEventListener('click', event => {
+  const chip = event.target.closest('[data-filter]');
+  if (chip) { logFilter = chip.dataset.filter; update(); }
+});
+$('#toggle-sidebars').addEventListener('click', () => {
+  sidebars = !sidebars;
+  document.body.classList.toggle('no-sidebars', !sidebars);
+  $('#toggle-sidebars').textContent = sidebars ? '收起两侧栏' : '展开两侧栏';
 });
 $('#lab-enter').addEventListener('click', enterLab);
 $('#back-classic').addEventListener('click', backToClassic);
