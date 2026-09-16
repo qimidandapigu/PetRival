@@ -14,7 +14,12 @@ test('every element the jump page drives exists in jump.html',()=>{
  assert.ok(ids.length>12);
  for(const id of new Set(ids))assert.ok(html.includes(`id="${id}"`),`jump.html is missing #${id}`);
  for(const asset of ['/jump.mjs','/jump.css'])assert.ok(html.includes(asset),`jump.html must load ${asset}`);
- for(const module of ['./jump-world.mjs','./jump-lab.mjs'])assert.ok(source.includes(`from '${module}'`),`jump.mjs must import ${module}`);
+ for(const module of ['./jump-world.mjs','./jump-lab.mjs','./jump-stages.mjs'])assert.ok(source.includes(`from '${module}'`),`jump.mjs must import ${module}`);
+ // A module the page imports but the server does not serve is a blank page in the browser,
+ // so every relative import has to appear in the Node file map.
+ const server=readFileSync(new URL('../server/http.mjs',import.meta.url),'utf8');
+ for(const imported of new Set([...source.matchAll(/from '\.\/([\w.-]+\.mjs)'/g)].map(m=>m[1])))
+   assert.ok(server.includes(`'/public/${imported}'`)||server.includes(`'/${imported}'`),`server/http.mjs must serve /${imported}`);
 });
 async function fixture(){
  const nodes=new Map(),events=new Map(),saved=new Map(),waiting=new Map(),ops=[];
