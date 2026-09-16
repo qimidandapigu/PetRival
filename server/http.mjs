@@ -38,6 +38,7 @@ const files = {
   '/jump.mjs': ['public/jump.mjs', 'text/javascript; charset=utf-8'],
   '/jump-lab.mjs': ['public/jump-lab.mjs', 'text/javascript; charset=utf-8'],
   '/jump-stages.mjs': ['public/jump-stages.mjs', 'text/javascript; charset=utf-8'],
+  '/lookahead.mjs': ['public/lookahead.mjs', 'text/javascript; charset=utf-8'],
   '/jump-engine.mjs': ['public/jump-engine.mjs', 'text/javascript; charset=utf-8'],
   '/about': ['public/about.html', 'text/html; charset=utf-8'],
   '/about.html': ['public/about.html', 'text/html; charset=utf-8'],
