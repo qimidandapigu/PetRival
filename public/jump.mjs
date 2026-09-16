@@ -406,24 +406,25 @@ function drawActor(a, isPet, cam) {
 }
 const PANE_HEIGHT = 470;
 function cameraFor(x, width) { return Math.max(0, Math.min(Math.max(0, level.width - width + 30), x - width * .42)); }
-// One camera per pane over the same world: the pet on top, you below. Both panes draw both
-// actors, so you can always see how far apart you are while each keeps its own framing.
-function drawPane(top, cam, focus) {
-  const width = canvas.width;
+// A pane is one player's own view: their camera, their actor, their coins, key, switch and
+// door. Nothing from the other side is drawn here — that is what "independent" looks like.
+function drawPane(top, cam, who) {
+  const width = canvas.width, prog = who === 'pet' ? progress : humanProgress;
   ctx.save(); ctx.beginPath(); ctx.rect(0, top, width, PANE_HEIGHT); ctx.clip(); ctx.translate(0, top);
   rect(0, 0, width, PANE_HEIGHT, '#dceee3');
   for (let i = 0; i < 9; i++) { const x = i * 190 - cam * .3; rect(x, 285, 170, 110, '#c5dcbd'); rect(x + 30, 240, 100, 50, '#c5dcbd'); rect(x + 20, 75 + i % 3 * 20, 75, 15, '#f6f9e8'); }
   rect(0, 415, width, 55, '#7dbdb7');
   for (const p of level.platforms) { rect(p.x - cam, p.y, p.w, p.y === 400 ? 70 : 20, '#bbad82'); rect(p.x - cam, p.y, p.w, 8, '#63915c'); }
-  level.coins.forEach((coin, i) => { if (!progress.coins.includes(i)) { rect(coin.x - cam - 6, coin.y - 8, 12, 16, '#f4cf62'); rect(coin.x - cam - 1, coin.y - 5, 3, 10, '#bd853b'); } });
-  if (!progress.key) { label('⚿', level.key.x - cam, level.key.y + 5, '#ad752e', 26); label('钥匙', level.key.x - cam, level.key.y - 25, '#6c7446', 12); }
-  const sx = level.switch.x - cam; rect(sx - 14, level.switch.y + 3, 28, 9, progress.switchOn ? '#71ad63' : '#d7a152');
-  label(progress.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
-  if (!progress.switchOn) { rect(level.door.x - cam - 8, level.door.y, 16, level.door.h, '#8c7966'); label('锁门', level.door.x - cam, level.door.y - 12, '#655444', 12); }
+  level.coins.forEach((coin, i) => { if (!prog.coins.includes(i)) { rect(coin.x - cam - 6, coin.y - 8, 12, 16, '#f4cf62'); rect(coin.x - cam - 1, coin.y - 5, 3, 10, '#bd853b'); } });
+  if (!prog.key) { label('⚿', level.key.x - cam, level.key.y + 5, '#ad752e', 26); label('钥匙', level.key.x - cam, level.key.y - 25, '#6c7446', 12); }
+  const sx = level.switch.x - cam; rect(sx - 14, level.switch.y + 3, 28, 9, prog.switchOn ? '#71ad63' : '#d7a152');
+  label(prog.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
+  if (!prog.switchOn) { rect(level.door.x - cam - 8, level.door.y, 16, level.door.h, '#8c7966'); label('锁门', level.door.x - cam, level.door.y - 12, '#655444', 12); }
   rect(level.goal.x - cam - 3, level.goal.y - 70, 6, 70, '#557156'); rect(level.goal.x - cam + 3, level.goal.y - 70, 30, 20, '#eccb71');
   label('终点', level.goal.x - cam, level.goal.y - 82);
-  drawActor(human, false, cam); if (!pet.dead) drawActor(pet, true, cam);
-  label(focus === 'pet' ? `镜头跟${petName}` : '镜头跟你', width - 66, 22, '#3c6450', 13);
+  if (who === 'pet') { if (!pet.dead) drawActor(pet, true, cam); } else drawActor(human, false, cam);
+  label(who === 'pet' ? `镜头跟${petName} · 金币 ${prog.coins.length}/${level.coins.length}` : `镜头跟你 · 金币 ${prog.coins.length}/${level.coins.length}`, width - 96, 22, who === 'pet' ? '#39683c' : '#396c88', 13);
+  if (prog.won) label('已通关', width - 96, 42, '#7a5a24', 13);
   ctx.restore();
 }
 function draw() {
@@ -436,9 +437,10 @@ function draw() {
     drawPane(PANE_HEIGHT, cameraHuman, 'human');
     rect(0, PANE_HEIGHT - 4, width, 4, '#6f8f7c');
   } else {
-    const target = $('#camera').value === 'pet' ? pet : human;
+    const who = $('#camera').value === 'pet' ? 'pet' : 'human';
+    const target = who === 'pet' ? pet : human;
     cameraX += (cameraFor(target.x, width) - cameraX) * .12;
-    drawPane(0, cameraX, $('#camera').value);
+    drawPane(0, cameraX, who);
   }
   if (pending) label('模型观察中 · 你可以继续', width / 2, 30, '#3c6450', 15);
   if (paused) { rect(0, 0, width, canvas.height, '#eef4e299'); label('暂停练习', width / 2, canvas.height / 2, '#2f5545', 25); }

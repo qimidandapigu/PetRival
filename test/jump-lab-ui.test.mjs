@@ -17,9 +17,9 @@ test('every element the jump page drives exists in jump.html',()=>{
 });
 async function fixture(){
  const nodes=new Map(),events=new Map(),saved=new Map(),waiting=new Map(),ops=[];
- const record={fillRect:(...a)=>ops.push(['fillRect',...a]),save:()=>ops.push(['save']),restore:()=>ops.push(['restore']),
+ const record=(()=>{let fill='';return {set fillStyle(v){fill=v;},get fillStyle(){return fill;},fillRect:(...a)=>ops.push(['fillRect',...a,fill]),save:()=>ops.push(['save']),restore:()=>ops.push(['restore']),
    beginPath:()=>ops.push(['beginPath']),rect:(...a)=>ops.push(['rect',...a]),clip:()=>ops.push(['clip']),
-   translate:(...a)=>ops.push(['translate',...a]),fillText:(...a)=>ops.push(['fillText',...a])};
+   translate:(...a)=>ops.push(['translate',...a]),fillText:(...a)=>ops.push(['fillText',...a])};})();
  const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#camera'?'human':'',hidden:true,disabled:false,checked:false,textContent:'',dataset:{},addEventListener(t,h){this[t]=h;},focus(){},closest(){return null;},getContext(){return id==='#jump-canvas'?record:{};},clientWidth:900});return nodes.get(id);};
  const answer=(path,data)=>{const queue=waiting.get(path);assert.ok(queue&&queue.length,`no pending ${path}`);queue.shift()({ok:true,status:200,json:async()=>data});};
  const context=vm.createContext({...engine,...lab,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
@@ -169,6 +169,24 @@ test('split view draws two clipped panes, one camera per player',async()=>{
  assert.equal(f.canvas.height,470);
  assert.equal(f.ops.filter(o=>o[0]==='clip').length,3,'single pane adds one clip');
  assert.equal(JSON.parse(f.saved.get('petrival.jump.split.v1')).splitView,false);
+});
+test('each pane shows only its own player and its own items',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});
+ const coins=ops=>ops.filter(o=>o[0]==='fillRect'&&o[5]==='#f4cf62').length;
+ f.api.draw();
+ assert.equal(coins(f.ops),4,'both panes draw both of your uncollected coins to start with');
+ assert.equal(f.ops.filter(o=>o[0]==='fillText'&&o[1]==='你').length,1,'only your pane draws you');
+ assert.equal(f.ops.filter(o=>o[0]==='fillText'&&o[1]==='小精灵').length,1,'only its pane draws the pet');
+ const labels=f.ops.filter(o=>o[0]==='fillText'&&String(o[1]).startsWith('镜头跟')).map(o=>String(o[1]));
+ assert.equal(labels.some(t=>t.startsWith('镜头跟你 · 金币')),true);
+ assert.equal(labels.some(t=>t.startsWith('镜头跟小精灵 · 金币')),true);
+ const s=f.api.get();s.human.x=s.level.coins[0].x;s.human.y=s.level.coins[0].y+12;
+ f.api.advance();
+ f.ops.length=0;f.api.draw();
+ assert.equal(f.api.get().humanProgress.coins.length,1,'you really did collect it');
+ assert.equal(coins(f.ops),3,'the coin you ate is gone from your pane and still there in its pane');
+ const yourPane=f.api.get().humanProgress.coins.length;
+ assert.equal(yourPane,1);
 });
 test('a round restart keeps everything learned and clears only positions and goals',async()=>{
  const f=await fixture();f.api.nextWorld({first:true});f.api.labBattery();
