@@ -249,3 +249,23 @@ test('both players respawn and restart their own attempt after falling',async()=
  assert.equal(s.lab.log.some(e=>e.kind==='fall'&&e.text.includes('小精灵')),true);
  assert.equal(f.node('#attempts').textContent.includes('你跌落 1 次'),true);
 });
+test('the log renders and persists in the classic lesson too, without a lab world',async()=>{
+ const f=await fixture();
+ assert.equal(f.api.get().mode,'classic');
+ assert.equal(f.api.get().lab.world,null,'no lab world has been created yet');
+ assert.equal(f.node('#lab-log').textContent.includes('还没有记录'),true,'the empty state explains what will be logged');
+ f.api.restartRound();
+ assert.equal(f.api.get().lab.log.length,1);
+ const rendered=f.node('#lab-log').textContent;
+ assert.equal(rendered.includes('重开'),true,'a round restart is visible in the log');
+ assert.equal(rendered.includes('还没有记录'),false);
+ assert.equal(JSON.parse(f.saved.get('petrival.jump.lab.v1.pet.p')).log.length,1,'game events persist as they happen');
+ f.api.fall();
+ for(let i=0;i<50;i++)f.api.advance();
+ assert.equal(f.api.get().lab.log.some(e=>e.kind==='fall'),true,'a fall in the classic lesson is logged');
+ assert.equal(f.node('#lab-log').textContent.includes('跌落'),true);
+ assert.equal(f.node('#lab-knows').textContent.includes('示范课'),true,'the knowledge panel says why it is empty');
+ f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<10;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
+ assert.equal(f.api.get().lab.log.some(e=>e.kind==='demo'&&e.text.includes('示范课')),true,'a classic demonstration is logged');
+ assert.equal(f.node('#lab-log').textContent.includes('你的示范'),true);
+});

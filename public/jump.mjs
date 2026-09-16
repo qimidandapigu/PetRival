@@ -22,6 +22,9 @@ function saveView() { try { localStorage.setItem(viewKey, JSON.stringify({ split
 // a line here: free engine work, paid model calls, what changed, and what it cost.
 function logEvent(kind, text) {
   lab.log = [...(lab.log || []), logLine(kind, text)].slice(-MAX_LOG);
+  // Persist on the event itself: a fall, a demonstration or a decision must survive a
+  // reload even when nothing else in the lab changed.
+  saveLab();
 }
 const physics = () => mode === 'lab' && lab.world ? lab.world.physics : PHYSICS;
 const keys = { left: false, right: false, jump: false }, keyboard = new Set(), pointers = new Map();
@@ -103,8 +106,10 @@ async function decide() {
     if (learning) {
       lab.calls++; lab.pending = result.prediction ? { prediction: result.prediction, start: { ...pet } } : null;
       logEvent('act', `第 ${calls} 次决策（累计第 ${lab.calls} 次模型调用）：它给出 ${queue.length} 段按键、目标「${result.goal || '试探'}」，参考手册 ${result.notesProvided} 条${result.prediction ? '，并先下了预测' : '，没有给预测'}`);
-      saveLab(); update();
+    } else {
+      logEvent('act', `示范课第 ${calls} 次决策：它给出 ${queue.length} 段按键、目标「${result.goal || '执行下一段'}」，参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范，耗时 ${(result.latencyMs / 1000).toFixed(1)} 秒`);
     }
+    saveLab(); update();
     status = learning
       ? `${result.model}：${result.goal || '试探这个世界'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）· ${result.prediction ? '已先下预测' : '这次没给预测'}`
       : `${result.model}：${result.goal || '执行下一段动作'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范`;
@@ -115,13 +120,18 @@ function start() {
   if (!ready) return; if (recording) finishDemo();
   if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); petRespawnAt = 0; }
   if (progress.won) return;
-  cancel(); enabled = true; calls = 0; paused = false; $('#soundless-pause').textContent = '暂停'; decide(); canvas.focus();
+  cancel(); enabled = true; calls = 0; paused = false; $('#soundless-pause').textContent = '暂停';
+  logEvent('act', mode === 'lab' ? `让它按手册自己闯（本轮最多 16 次模型调用）` : `让它自己闯（本轮最多 16 次模型调用，参考最近 ${samples.length} 次示范）`);
+  saveLab(); decide(); canvas.focus();
 }
 function teach() {
   cancel(); idle(); if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); petRespawnAt = 0; }
   human = { ...pet }; recording = { id: crypto.randomUUID(), level, from: { ...human }, actions: [], frames: 0 };
   paused = false; $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
-  status = '从精灵当前位置示范，最多 4 秒操作；完成后点击“示范完成”。金币和机关仍只属于精灵。'; update(); canvas.focus();
+  status = mode === 'lab' ? '从精灵当前位置示范，最多 4 秒操作；完成后点击“示范完成”。你的金币和机关算你自己的。'
+    : '从精灵当前位置示范，最多 4 秒操作；完成后点击“示范完成”，它就会参考。';
+  logEvent('demo', '开始录制你的示范（最多 4 秒 / 240 帧）');
+  update(); canvas.focus();
 }
 function finishDemo() {
   if (!recording) return;
@@ -143,7 +153,9 @@ function finishDemo() {
     saveLab(); status = `已把你的 ${recording.frames} 帧操作记成一次带标签的实验；它还得自己归纳出结论。`;
   } else if (recording.actions.length) {
     const { frames, ...sample } = recording; sample.to = { ...human }; sample.outcome = human.dead ? 'fell' : 'survived';
-    samples.push(sample); samples = samples.slice(-8); save(); status = '已记录你的真实操作。下一次模型会参考它；这不代表已经学会。';
+    samples.push(sample); samples = samples.slice(-8); save();
+    logEvent('demo', `示范课：记录你 ${frames} 帧真实操作（${sample.outcome === 'fell' ? '跌落反例' : '存活'}），起点 x=${Math.round(sample.from.x)} → 终点 x=${Math.round(sample.to.x)}，花了 0 次模型调用`);
+    status = '已记录你的真实操作。下一次模型会参考它；这不代表已经学会。';
   } else status = '这次没有操作，未保存示范。';
   recording = null; update();
 }
@@ -330,14 +342,25 @@ function labRunModelPlan() {
   status = '正在按它自己模型里的路线走；真实引擎会告诉它模型对不对。';
   update();
 }
+function renderLog() {
+  const when = at => { const d = new Date(at || Date.now());
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
+  $('#lab-log').textContent = (lab.log || []).length
+    ? [...lab.log].reverse().map(entry => `[${when(entry.at)}] ${LOG_KINDS[entry.kind] || entry.kind}｜${entry.text}`).join('\n')
+    : '还没有记录。它会记录：换世界、先验猜测、免费实验台、你的示范、归纳、每一轮世界模型误差、规划与真跑、每次决策、预测打分、双方的跌落与复活、重开一轮、揭晓真相。';
+}
 function updateLab() {
+  // The log belongs to the whole page, not to the lab: falls, rounds and demonstrations
+  // happen in the classic lesson too, and the player must be able to read them there.
+  renderLog();
   if (!lab.world) {
     $('#lab-world').textContent = '还没开始';
     $('#lab-notebook').textContent = '还没有进入实验室。';
     $('#lab-score').textContent = '点“进入实验室”抽第一个世界。';
     $('#lab-model-out').textContent = '';
-    $('#lab-knows').textContent = '还没有进入实验室。';
-    $('#lab-log').textContent = '还没有记录。';
+    $('#lab-knows').textContent = (lab.log || []).length
+      ? '还没进入实验室。上面的日志已经记下了示范课里发生的事（示范、跌落、重开）。进入实验室后这里会显示它已经学会了什么。'
+      : '还没有进入实验室。点“进入实验室”抽第一个世界，或先在示范课里录一次示范。';
     $('#lab-answer').textContent = '';
     return;
   }
@@ -369,13 +392,8 @@ function updateLab() {
     ...channelLines,
     `手册统计：确认 ${knows.confirmed} 条 · 待验证 ${knows.pending} 条 · 猜想 ${knows.hypotheses} 条 · 已推翻 ${knows.refuted} 条`,
   ].join('\n');
-  const when = at => { const d = new Date(at || Date.now());
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
-  $('#lab-log').textContent = (lab.log || []).length
-    ? [...lab.log].reverse().map(entry => `[${when(entry.at)}] ${LOG_KINDS[entry.kind] || entry.kind}｜${entry.text}`).join('\n')
-    : '还没有记录。按「② 跑实验台」开始，它每一步都会写在这里。';
 }
-const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败' };
+const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败', fall: '跌落', win: '通关' };
 function update() {
   const side = (p, label) => `${label} 金币 ${p.coins.length}/${level.coins.length} · ${p.key ? '已取钥匙' : '先取钥匙'} · ${p.switchOn ? '门已开' : '回头开机关'}${p.won ? ' · 已通关' : ''}`;
   $('#level-title').textContent = level.title;
