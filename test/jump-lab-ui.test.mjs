@@ -28,7 +28,7 @@ async function fixture(){
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
  vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,get:()=>({human,pet,progress,samples,queue,enabled,pending,mode,lab,level,status})};',context);
  await flush();
- return {api:context.fixture,saved,waiting,answer,body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
+ return {api:context.fixture,saved,waiting,node,answer,body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
 }
 test('a blank world starts with nothing: no notebook, no traces, and the battery is free',async()=>{
  const f=await fixture();f.api.nextWorld({first:true});
@@ -124,4 +124,31 @@ test('the world-model button sends traces, stores the code, and the real engine 
  assert.equal(after.lab.modelRuns.length,1);
  assert.equal(after.lab.traces.filter(t=>t.origin==='self').length,1);
  assert.equal(JSON.parse(f.saved.get('petrival.jump.lab.v1.pet.p')).worldModel.verified,true);
+});
+test('the learning log and the "what it knows" panel show every step in plain language',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});
+ f.api.labBattery();
+ const induction=f.api.labInduce();
+ f.answer('/api/jump/lab/induce',{method:'model',model:'fixture',notebook:[
+   {id:'n1',claim:'按住 a 让精灵向右移动',state:'确认',evidence:['e1','e2','e3'],confidence:.9},
+   {id:'n2',claim:'空地落地时 vy 归零',state:'观察',evidence:['e1'],confidence:.5}],confirmed:1,learned:2,adjusted:[],nextExperiment:null,experiments:9,latencyMs:4200});
+ await induction;
+ const s=f.api.get();
+ assert.equal(s.lab.log.some(e=>e.kind==='world'),true);
+ assert.equal(s.lab.log.some(e=>e.kind==='battery'&&e.text.includes('0 次模型调用')),true);
+ assert.equal(s.lab.log.some(e=>e.kind==='induce'&&e.text.includes('4.2 秒')),true);
+ assert.equal(s.lab.log.some(e=>e.kind==='learn'&&e.text.includes('按住 a')),true);
+ assert.equal(s.lab.log.every(e=>typeof e.at==='number'&&e.text.length<=300),true);
+ const saved=JSON.parse(f.saved.get('petrival.jump.lab.v1.pet.p'));
+ assert.equal(saved.log.length,s.lab.log.length);
+ const rendered=f.node('#lab-log').textContent;
+ assert.equal(rendered.includes('实验台'),true);assert.equal(rendered.includes('归纳'),true);
+ const knows=f.node('#lab-knows').textContent;
+ assert.equal(knows.includes('通道 a：按住 a 让精灵向右移动'),true);
+ assert.equal(knows.includes('通道 b：还不知道'),true);
+ assert.equal(knows.includes('确认 1 条'),true);
+ f.api.labReveal();
+ const revealed=f.node('#lab-knows').textContent;
+ assert.equal(revealed.includes('通道 a'),true);
+ assert.equal(f.api.get().lab.log.some(e=>e.kind==='reveal'),true);
 });

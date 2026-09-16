@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PHYSICS, actor, progress, replayActions, step, validateActions, verifyLevel } from '../public/jump-world.mjs';
-import { CHANNELS, ROLES, RANGES, labLevel, labWorld, hiddenTruth, channelInput, roleInputToChannels, validateChannelActions,
-  validatePhysics, runExperiment, experimentBattery, verifyLabWorld, reduceNotebook, summarizeNotebook,
+import { CHANNELS, ROLES, RANGES, MAX_LOG, labLevel, labWorld, hiddenTruth, channelInput, roleInputToChannels, validateChannelActions,
+  validatePhysics, runExperiment, experimentBattery, verifyLabWorld, reduceNotebook, summarizeNotebook, summarizeKnowledge, logLine,
   scorePrediction, validatePrediction, scorePriorGuesses, labEvidence, labObservation } from '../public/jump-lab.mjs';
 
 test('a world hides a permutation of roles and in-range physics', () => {
@@ -67,4 +67,28 @@ test('the engine never hands the model the hidden facts', () => {
   assert.equal(trace.origin, 'human');
   assert.equal(start.x, a.x);
   assert.equal(Math.abs(trace.delta.x) > 2 || trace.delta.y !== 0, true);
+});
+
+test('the learning summary states what is known, what is not, and what is verified', () => {
+  const notebook = reduceNotebook([], [
+    { id: 'n1', claim: '按住 a 让精灵向右移动', state: '观察', evidence: ['x', 'y', 'z'] },
+    { id: 'n2', claim: '精灵落地时 grounded 变成 true', state: '观察', evidence: ['x'] },
+    { id: 'n3', claim: '按住 b 也许能跳', state: '猜想', evidence: [] }], ['x', 'y', 'z']).notebook;
+  const summary = summarizeKnowledge({ notebook, worldModel: { verified: true, frames: 204, matched: 204 }, accuracy: { hits: 9, total: 12 },
+    plan: { actions: [{ a: true, b: false, c: false, frames: 20 }], target: 520 }, modelRuns: [{ hit: true }, { hit: false }] });
+  assert.equal(summary.confirmed, 1);
+  assert.deepEqual(summary.channels.map(c => [c.channel, c.known]), [['a', true], ['b', false], ['c', false]]);
+  assert.deepEqual(summary.unknown, ['b', 'c']);
+  assert.equal(summary.hypotheses, 1);
+  assert.ok(summary.lines.some(line => line.includes('能逐帧预测这个世界')));
+  assert.ok(summary.lines.some(line => line.includes('9/12')));
+  assert.ok(summary.lines.some(line => line.includes('1/2 次成立')));
+  const revealed = summarizeKnowledge({ notebook, answer: { mapping: { a: 'right', b: 'jump', c: 'left' } } });
+  assert.deepEqual(revealed.channels.map(c => [c.channel, c.agrees]), [['a', true], ['b', null], ['c', null]]);
+  const empty = summarizeKnowledge({});
+  assert.equal(empty.unknown.length, 3);
+  assert.ok(empty.lines[0].includes('还什么都不会'));
+  assert.equal(logLine('battery', 'x').kind, 'battery');
+  assert.equal(logLine('induce', 'y'.repeat(500)).text.length, 300);
+  assert.ok(MAX_LOG >= 100);
 });

@@ -196,3 +196,34 @@ export function verifyLabWorld(world, { samples = 5, maxNodes = 9000 } = {}) {
   }
   return { verified: results.every(r => r.verified), results };
 }
+
+// ---- 学习日志与「它现在会什么」 ----
+export const MAX_LOG = 160;
+export const ROLE_WORDS = Object.freeze({ left: '左', right: '右', jump: '跳' });
+// A log line is plain data: the page renders it, nothing infers from it. `kind` groups the
+// steps so the player can see which of them cost a model call and which were free.
+export function logLine(kind, text) {
+  return { at: Number.isFinite(Date.now()) ? Date.now() : 0, kind: String(kind).slice(0, 20), text: String(text).slice(0, 300) };
+}
+// What the pet can claim right now, in plain language. Every line comes from evidence the
+// server counted (confirmed notebook entries, engine-scored frames, scored predictions),
+// never from a model's own summary of itself.
+export function summarizeKnowledge({ notebook = [], worldModel = null, plan = null, modelRuns = [], accuracy = { hits: 0, total: 0 }, answer = null } = {}) {
+  const notes = summarizeNotebook(notebook);
+  const confirmed = notes.filter(n => n.state === '确认');
+  const channels = CHANNELS.map(channel => {
+    const claims = confirmed.filter(n => n.claim.includes(channel)).map(n => n.claim);
+    const actual = answer?.mapping?.[channel] ?? null;
+    return { channel, claims, known: claims.length > 0, actual, agrees: actual && claims.length ? claims.some(claim => claim.includes(ROLE_WORDS[actual])) : null };
+  });
+  const lines = [];
+  if (!confirmed.length && !worldModel) lines.push('还什么都不会：没有一条机制达到「确认」，也没有通过验证的世界模型。');
+  if (worldModel?.verified) lines.push(`能逐帧预测这个世界：代码跑通 ${worldModel.frames} 帧、误差 0。`);
+  else if (worldModel) lines.push(`世界模型还没对上：${worldModel.frames} 帧里对上 ${worldModel.matched} 帧，所以不能拿它规划。`);
+  if (plan?.actions?.length) lines.push(`模型里搜出了到 x=${plan.target} 的路线（${plan.actions.length} 段），但只有真引擎跑通才算数。`);
+  if (modelRuns.length) lines.push(`模型规划在真世界 ${modelRuns.filter(r => r.hit).length}/${modelRuns.length} 次成立。`);
+  if (accuracy.total) lines.push(`行动预测命中 ${accuracy.hits}/${accuracy.total}（${Math.round(accuracy.hits / accuracy.total * 100)}%）。`);
+  return { channels, unknown: channels.filter(c => !c.known).map(c => c.channel), lines, confirmed: confirmed.length,
+    hypotheses: notes.filter(n => n.state === '猜想').length, pending: notes.filter(n => n.state === '观察').length,
+    refuted: notes.filter(n => n.state === '已推翻').length };
+}

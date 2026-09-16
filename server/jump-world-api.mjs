@@ -40,6 +40,9 @@ export async function writeJumpWorldModel(brain, input, { signal } = {}) {
     { role: 'user', content: JSON.stringify({ world: { name: text(input?.world?.name, 40), level }, channels: [...CHANNELS], experiments: traces }) },
   ];
   let best = null, attempt = 0, notes = '', failure = '', lastCode = '';
+  // Every round is reported, not just the last one: "how it got better" is the only way a
+  // player can see that anything is being learned at all.
+  const rounds = [];
   while (attempt < 4) {
     attempt++;
     let raw;
@@ -48,20 +51,22 @@ export async function writeJumpWorldModel(brain, input, { signal } = {}) {
     // first turn gets one retry, because losing it loses the whole request.
     try { raw = await ask(brain, messages, { signal, maxTokens: 2600, timeoutMs: 120000 }); }
     catch (e) {
-      if (attempt === 1) { try { raw = await ask(brain, messages, { signal, maxTokens: 2600, timeoutMs: 120000 }); } catch { failure = text(e.message, 200); throw e; } }
-      else { failure = text(e.message, 200); if (best) break; throw e; }
+      if (attempt === 1) { try { raw = await ask(brain, messages, { signal, maxTokens: 2600, timeoutMs: 120000 }); } catch { failure = text(e.message, 200); rounds.push({ round: attempt, problem: failure }); throw e; } }
+      else { failure = text(e.message, 200); rounds.push({ round: attempt, problem: failure }); if (best) break; throw e; }
     }
     const code = typeof raw?.code === 'string' ? raw.code.replace(/^```[a-z]*\n?|```$/g, '').slice(0, MODEL_LIMIT) : '';
-    if (!code) { failure = '模型没有给出 code 字段'; break; }
+    if (!code) { failure = '模型没有给出 code 字段'; rounds.push({ round: attempt, problem: failure }); break; }
     lastCode = code;
     notes = text(raw?.notes?.join?.('；') ?? raw?.notes, 300);
     const score = scoreWorldModel(code, traces, level);
     if (!score.ok) {
       failure = score.problem;
+      rounds.push({ round: attempt, problem: text(score.problem, 200) });
       messages.push({ role: 'assistant', content: JSON.stringify({ code, notes: raw?.notes }) },
         { role: 'user', content: `你的代码没法运行：${text(score.problem, 200)}。请修好它，重新输出完整 JSON。` });
       continue;
     }
+    rounds.push({ round: attempt, matched: score.matched, frames: score.frames, error: score.error, worst: score.worst });
     if (!best || score.error < best.score.error) best = { code, score };
     if (score.error === 0) break;
     messages.push({ role: 'assistant', content: JSON.stringify({ code, notes: raw?.notes }) }, { role: 'user', content: mismatchReport(score, traces) });
@@ -70,7 +75,7 @@ export async function writeJumpWorldModel(brain, input, { signal } = {}) {
   const score = best?.score ?? null, verified = !!score && score.error === 0;
   const problem = text(failure || score?.failed || '', 200);
   const planned = verified ? planWithWorldModel(best.code, level, { start: { x: from.x, y: from.y, vy: from.vy, grounded: from.grounded }, target: { x: planTo, y: from.y } }) : null;
-  return { method: 'model', model: brain.info().model, code: best?.code || lastCode, verified, attempts: attempt,
+  return { method: 'model', model: brain.info().model, code: best?.code || lastCode, verified, attempts: attempt, rounds,
     matched: score?.matched ?? 0, frames: score?.frames ?? 0, error: score?.error ?? 1, worst: score?.worst ?? 0, died: score?.died === true,
     mismatches: (score?.mismatches || []).slice(0, 4), notes, failure: problem,
     plan: planned?.ok && planned.found ? planned.plan : [], predicted: planned?.ok && planned.found ? planned.predicted : null,

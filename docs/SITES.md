@@ -60,3 +60,7 @@ Source adds `/api/jump/lab/prior|induce|plan` and a browser-local blank-slate wo
 ## World-model-as-code update
 
 Adds `/api/jump/lab/model`, which has the model write `step(state, action, level)` and runs it inside a `node:vm` sandbox against the recorded traces, then repairs it from the measured first divergence (up to four turns) and only plans with a zero-error model. **This lane is Node-only**: the Worker answers it with an explicit 503 instead of importing a module it cannot run; the other lab lanes stay identical on both runtimes. Request body limit for both runtimes moves from 32768 to 65536 bytes because per-frame traces are larger. 188 Node + 40 cloud tests, syntax scan and build passed; real-model checks reached 255/258 matched frames on one world but no verified model yet, so no plan was produced. Still not published: the mirror and the deployed site remain v17. See [behavior, evidence and limits](JUMP-WORLD-MODEL-2026-09-15.md).
+
+## Learning log update
+
+The lab now writes a browser-local learning log (one line per step, with which steps were free and which cost a model call) and a plain-language "what it knows" panel (per-channel confirmed claims, still-unknown channels, and a ✓/✗ reading against the revealed truth). `/api/jump/lab/model` reports every repair round, so a stalled loop is visible instead of silent. No schema change, no identity or reward change, no new runtime gap. 190 Node + 40 cloud tests, syntax scan and build passed. Not published; still v17.

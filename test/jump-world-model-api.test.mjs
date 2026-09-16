@@ -47,6 +47,11 @@ test('a wrong code model is repaired by the engine diff until it replays everyth
   assert.equal(result.plan.length > 0, true, 'a verified model must be able to plan');
   assert.ok(result.predicted.x >= result.planTo);
   assert.equal(result.mismatches.length, 0);
+  assert.equal(result.rounds.length, 2, 'every repair round is reported, not just the last');
+  assert.deepEqual(result.rounds.map(r => r.round), [1, 2]);
+  assert.ok(result.rounds[0].matched < result.rounds[1].matched, 'the rounds must show the improvement');
+  assert.equal(result.rounds[1].error, 0);
+  assert.equal(result.rounds[0].frames, result.rounds[1].frames);
 });
 
 test('a model that never matches is reported honestly and never plans', async () => {

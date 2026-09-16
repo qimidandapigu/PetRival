@@ -16,6 +16,9 @@
     <p class="lab-note">世界模型不是一段文字，而是一段 <code>step(state, action, level)</code> 代码：服务端真的逐帧运行它，和你看到过的每条真实轨迹比对，把第一处分歧和第几帧差多少告诉它，它再修。对不上的模型不能用来规划。</p>
     <p id="lab-status" role="status">先猜一次，看它靠常识能猜对多少；再跑实验，看它能不能自己总结出规则。</p>
     <div class="lab-grid"><div><h3>机制手册</h3><div id="lab-notebook"></div></div><div><h3>成绩</h3><div id="lab-score"></div><div id="lab-answer"></div></div></div>
-    <details class="lab-code" open><summary>它的世界模型（可执行代码）与逐帧比对结果</summary><pre id="lab-model-out"></pre></details>
+    <h3 class="lab-knows-heading">它现在会什么</h3>
+    <pre id="lab-knows" class="lab-knows">还没有进入实验室。</pre>
+    <details class="lab-code" open><summary>学习日志（每一步做了什么、学到什么、花了多少调用）</summary><pre id="lab-log"></pre></details>
+    <details class="lab-code"><summary>它的世界模型（可执行代码）与逐帧比对结果</summary><pre id="lab-model-out"></pre></details>
   </section>
 <section class="generation"><h2>让模型备下一关</h2><p>高台取钥匙 → 回头踩开关 → 开门。新关需通过完整物理回放验证，准备好后再切换。</p><label>关卡要求 <input id="level-intent" maxlength="400" value="高台寻钥匙，回头开机关，再跨过小溪。增加一条取金币的支路。"></label><div class="tools"><button id="generate" type="button">大模型备新关</button><button id="use-level" hidden type="button">进入已验证的新关</button></div><p id="generation-status" role="status">当前为内置验证示范关，未调用模型生成。</p><label>教它一句话 <input id="teacher-note" maxlength="200" placeholder="例如：先跳上左边平台取钥匙，再回来踩开关"></label></section></main></body></html>
