@@ -29,7 +29,7 @@ async function fixture(){
    return new Promise(resolve=>{const queue=waiting.get(path)||[];queue.push(resolve);waiting.set(path,queue);queue.body=JSON.parse(opts.body);});
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,draw,fall:()=>{pet.dead=true;fallTick=tick;},get:()=>({human,pet,progress,samples,queue,enabled,pending,mode,lab,level,status,splitView,autoRound,roundIndex,roundDemos,tick})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,draw,fall:()=>{pet.dead=true;petRespawnAt=tick+45;},get:()=>({human,pet,progress,humanProgress,samples,queue,enabled,pending,mode,lab,level,status,splitView,roundIndex,roundDemos,tick,humanFalls,humanWon})};',context);
  await flush();
  return {api:context.fixture,saved,waiting,node,answer,ops,canvas:node('#jump-canvas'),body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
 }
@@ -191,15 +191,43 @@ test('a round restart keeps everything learned and clears only positions and goa
  assert.equal(after.lab.log.some(e=>e.kind==='round'&&e.text.includes('保留')),true);
  assert.equal(f.node('#round-info').textContent.includes('第 2 轮'),true);
 });
-test('the pet falling can auto-restart the round so demonstrating can continue',async()=>{
+test('your demonstration is replayed under your own rules and carries your pickups',async()=>{
  const f=await fixture();f.api.nextWorld({first:true});
- f.node('#auto-round').change({target:{checked:true}});
- assert.equal(f.api.get().autoRound,true);
- f.api.fall();
- for(let i=0;i<95;i++)f.api.advance();
+ const start=f.api.get();
+ start.pet.x=start.level.coins[0].x;start.pet.y=start.level.coins[0].y+12;
+ f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<10;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
+ const trace=f.api.get().lab.traces.filter(t=>t.origin==='human').pop();
+ assert.ok(trace,'the demonstration is stored as a trace');
+ assert.equal(trace.progress.coins.length,1,'the replay collects with your own rules');
+ assert.equal(f.api.get().lab.log.some(e=>e.kind==='demo'&&e.text.includes('金币')),true);
+});
+test('both players now collect on their own score',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});
+ const start=f.api.get();
+ start.human.x=start.level.coins[0].x;start.human.y=start.level.coins[0].y+12;
+ for(let i=0;i<6;i++)f.api.advance();
  const s=f.api.get();
- assert.equal(s.pet.dead,false,'the round restarts');
- assert.equal(s.roundIndex,2);
+ assert.equal(s.humanProgress.coins.length,1,'the human collects coins like a real player');
+ assert.equal(s.progress.coins.length,0,'the pet score stays untouched by the human');
+ assert.equal(f.node('#objective').textContent.includes('你 金币 1/'),true);
+ assert.equal(f.node('#objective').textContent.includes(`${'小精灵'} 金币 0/`),true);
+});
+test('both players respawn and restart their own attempt after falling',async()=>{
+ const f=await fixture();f.api.nextWorld({first:true});
+ const s0=f.api.get();s0.human.dead=true;
+ f.api.advance();
+ let s=f.api.get();
+ assert.equal(s.human.dead,false,'the human respawns');
+ assert.equal(s.human.x,s.level.spawn.x);
+ assert.equal(s.humanFalls,1);
+ assert.equal(s.lab.log.some(e=>e.kind==='fall'&&e.text.includes('你摔了')),true);
+ s.progress.coins.push(0);
+ f.api.fall();
+ for(let i=0;i<50;i++)f.api.advance();
+ s=f.api.get();
+ assert.equal(s.pet.dead,false,'the pet respawns on its own');
  assert.equal(s.pet.x,s.level.spawn.x);
- assert.equal(JSON.parse(f.saved.get('petrival.jump.split.v1')).autoRound,true);
+ assert.equal(s.progress.coins.length,0,'the pet restarts its own progress, not the shared one');
+ assert.equal(s.lab.log.some(e=>e.kind==='fall'&&e.text.includes('小精灵')),true);
+ assert.equal(f.node('#attempts').textContent.includes('你跌落 1 次'),true);
 });

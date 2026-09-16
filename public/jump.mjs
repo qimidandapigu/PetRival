@@ -2,11 +2,11 @@ import { starterLevel, actor, step, progress as freshProgress, validateLevel, va
 import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
-let level = starterLevel(), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress();
+let level = starterLevel(), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress(), humanProgress = freshProgress();
 let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', storageKey = 'petrival.jump.v2.guest';
 let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
-let queue = [], calls = 0, falls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
-let status = '你可以先练习。点击开始后，真实模型才会决定精灵的动作。', feedback = '', planStart, prepared = null;
+let queue = [], calls = 0, falls = 0, humanFalls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
+let status = '你可以先练习。点击开始后，真实模型才会决定精灵的动作。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false;
 // Blank lab: this world's channel roles and physics exist only in `lab.world`, and `mode`
 // decides whether the model is playing a designed level or learning from scratch.
 let mode = 'classic', labStorageKey = 'petrival.jump.lab.v1.guest';
@@ -15,9 +15,9 @@ let lab = { index: 1, seed: 0, world: null, notebook: [], traces: [], prior: nul
 let modelPlan = null;
 // Split view keeps one camera per pane over the same world, so the pet and you stay visible
 // at once. Rounds exist so demonstrating repeatedly does not wipe what the pet has learned.
-let splitView = true, cameraPet = 0, cameraHuman = 0, roundIndex = 1, roundDemos = 0, autoRound = false, fallTick = -1;
+let splitView = true, cameraPet = 0, cameraHuman = 0, roundIndex = 1, roundDemos = 0;
 const viewKey = 'petrival.jump.split.v1';
-function saveView() { try { localStorage.setItem(viewKey, JSON.stringify({ splitView, autoRound })); } catch {} }
+function saveView() { try { localStorage.setItem(viewKey, JSON.stringify({ splitView })); } catch {} }
 // The log is the only place the player can see what actually happened, so every step writes
 // a line here: free engine work, paid model calls, what changed, and what it cost.
 function logEvent(kind, text) {
@@ -62,8 +62,8 @@ async function init() {
   try { const stored = JSON.parse(localStorage.getItem(storageKey) || '[]'); samples = (Array.isArray(stored) ? stored : []).slice(-8).filter(d => { try { validateLevel(d.level); validateActions(d.actions); return d.from && d.to; } catch { return false; } }); } catch {}
   try { loadLab(JSON.parse(localStorage.getItem(labStorageKey) || 'null')); } catch {}
   try { const view = JSON.parse(localStorage.getItem(viewKey) || 'null');
-    if (view) { splitView = view.splitView !== false; autoRound = view.autoRound === true; } } catch {}
-  $('#split').checked = splitView; $('#auto-round').checked = autoRound;
+    if (view) splitView = view.splitView !== false; } catch {}
+  $('#split').checked = splitView;
   ready = true; update();
 }
 function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; }
@@ -73,8 +73,8 @@ function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; q
 function restartRound(reason = '') {
   if (recording) finishDemo();
   cancel(); idle(); recording = null;
-  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
-  calls = falls = 0; feedback = ''; paused = false; fallTick = -1; roundIndex++; roundDemos = 0;
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; petRespawnAt = 0; humanWon = false; roundIndex++; roundDemos = 0;
   $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
   status = `第 ${roundIndex} 轮${reason}：位置和目标重置，${mode === 'lab' ? '机制手册、实验记录和世界模型都保留' : '你的示范笔记保留'}。可以「回去示范」。`;
   logEvent('round', `第 ${roundIndex} 轮重开${reason}：${mode === 'lab' ? `手册 ${summarizeNotebook(lab.notebook).length} 条、实验 ${lab.traces.length} 次、累计模型调用 ${lab.calls} 次全部保留` : `已存 ${samples.length} 次示范`}`);
@@ -82,8 +82,8 @@ function restartRound(reason = '') {
   update(); canvas.focus();
 }
 function resetLevel(next = level) {
-  cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
-  calls = falls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; fallTick = -1;
+  cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false;
   $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
 async function decide() {
@@ -113,12 +113,12 @@ async function decide() {
 }
 function start() {
   if (!ready) return; if (recording) finishDemo();
-  if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); }
+  if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); petRespawnAt = 0; }
   if (progress.won) return;
   cancel(); enabled = true; calls = 0; paused = false; $('#soundless-pause').textContent = '暂停'; decide(); canvas.focus();
 }
 function teach() {
-  cancel(); idle(); if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); }
+  cancel(); idle(); if (pet.dead) { pet = actor(level.spawn); progress = freshProgress(); petRespawnAt = 0; }
   human = { ...pet }; recording = { id: crypto.randomUUID(), level, from: { ...human }, actions: [], frames: 0 };
   paused = false; $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
   status = '从精灵当前位置示范，最多 4 秒操作；完成后点击“示范完成”。金币和机关仍只属于精灵。'; update(); canvas.focus();
@@ -133,9 +133,13 @@ function finishDemo() {
       if (last && last.a === mask.a && last.b === mask.b && last.c === mask.c && last.frames + action.frames <= 90) last.frames += action.frames;
       else segments.push({ ...mask, frames: action.frames });
     }
-    lab.traces = [...lab.traces, runExperiment(lab.world, { id: `human-${Date.now().toString(36)}`, segments, origin: 'human',
-      start: recording.from, note: '你亲手做的一次示范' })].slice(-MAX_TRACES);
-    logEvent('demo', `你的示范记成一条带标签实验：${recording.frames} 帧，起点 x=${Math.round(recording.from.x)} → 终点 x=${Math.round(human.x)}（${human.dead ? '跌落' : '存活'}），花了 0 次模型调用`);
+    // Replayed under human rules, exactly as it happened: your own coins, key and switch are
+    // yours, and they now also become evidence the pet can read about how items behave.
+    const trace = runExperiment(lab.world, { id: `human-${Date.now().toString(36)}`, segments, origin: 'human',
+      start: recording.from, note: '你亲手做的一次示范', role: 'human' });
+    lab.traces = [...lab.traces, trace].slice(-MAX_TRACES);
+    const items = trace.progress.coins.length ? `，你顺手收了 ${trace.progress.coins.length} 枚金币` : '';
+    logEvent('demo', `你的示范记成一条带标签实验：${recording.frames} 帧，起点 x=${Math.round(recording.from.x)} → 终点 x=${Math.round(human.x)}（${human.dead ? '跌落' : '存活'}）${items}，花了 0 次模型调用`);
     saveLab(); status = `已把你的 ${recording.frames} 帧操作记成一次带标签的实验；它还得自己归纳出结论。`;
   } else if (recording.actions.length) {
     const { frames, ...sample } = recording; sample.to = { ...human }; sample.outcome = human.dead ? 'fell' : 'survived';
@@ -177,14 +181,22 @@ function advance() {
     else finishDemo();
     if (recording) recording.frames++;
   }
-  step(human, input, level, progress, 'human', physics());
+  step(human, input, level, humanProgress, 'human', physics());
   if (recording && (recording.frames >= 240 || human.dead)) finishDemo();
-  if (human.dead) human = actor(level.spawn);
+  // Whoever falls respawns and restarts their own attempt; the other side is untouched.
+  if (human.dead) {
+    humanFalls++; human = actor(level.spawn); humanProgress = freshProgress();
+    logEvent('fall', `你摔了（第 ${humanFalls} 次），已复活回到起点、自己的金币和机关重置`);
+  }
+  if (humanProgress.won && !humanWon) {
+    humanWon = true; logEvent('win', `你自己也通关了：收齐 ${level.coins.length} 枚金币、取钥匙、开机关、到终点`);
+    status = '你自己也通关了。小精灵那边还在继续，它的进度是它自己的。';
+  }
   if (enabled && !pending && !recording) {
     if (queue.length) {
       const action = queue[0]; step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics());
       if (--action.frames <= 0) queue.shift();
-      if (pet.dead) { falls++; enabled = false; queue = []; fallTick = tick; status = '精灵跌落了。回去示范，或点击开始从出生点重试。'; }
+      if (pet.dead) { falls++; queue = []; petRespawnAt = tick + 45; logEvent('fall', `小精灵跌落（第 ${falls} 次），45 帧后复活重开`); status = '小精灵摔了，正在复活重开；它自己的进度会重置，学过的东西保留。'; }
       if (!queue.length) {
         if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
@@ -192,9 +204,12 @@ function advance() {
     } else decide();
   }
   if (progress.won) { enabled = false; status = '小精灵亲自收齐金币、取钥匙、开门并到达终点。'; idle(); }
-  // The fall stays on screen for a moment, then a round reset puts you both back at the
-  // spawn so the next demonstration can start immediately.
-  if (pet.dead && autoRound && fallTick >= 0 && tick - fallTick > 90) restartRound('（它摔了，自动重开）');
+  // A fall is survivable for both sides: the pet comes back on its own and keeps trying.
+  if (pet.dead && petRespawnAt && tick >= petRespawnAt) {
+    pet = actor(level.spawn); progress = freshProgress(); petRespawnAt = 0;
+    logEvent('fall', '小精灵已复活：位置和它自己的进度重置，机制手册、实验记录和世界模型保留');
+    status = '小精灵已复活重开，继续自己闯；你可以随时「回去示范」。';
+  }
   if (tick % 6 === 0) update();
 }
 async function generate() {
@@ -362,9 +377,11 @@ function updateLab() {
 }
 const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败' };
 function update() {
+  const side = (p, label) => `${label} 金币 ${p.coins.length}/${level.coins.length} · ${p.key ? '已取钥匙' : '先取钥匙'} · ${p.switchOn ? '门已开' : '回头开机关'}${p.won ? ' · 已通关' : ''}`;
   $('#level-title').textContent = level.title;
-  $('#objective').textContent = `精灵金币 ${progress.coins.length}/${level.coins.length} · ${progress.key ? '已取钥匙' : '先取钥匙'} · ${progress.switchOn ? '门已开' : '回头开机关'}`;
-  $('#pet-status').textContent = paused ? '已暂停。' : status; $('#attempts').textContent = `模型 ${calls}/16 次 · 跌落 ${falls} 次`;
+  $('#objective').textContent = `${side(humanProgress, '你')}　|　${side(progress, petName)}`;
+  $('#pet-status').textContent = paused ? '已暂停。' : status;
+  $('#attempts').textContent = `模型 ${calls}/16 次 · ${petName}跌落 ${falls} 次 · 你跌落 ${humanFalls} 次`;
   $('#round-info').textContent = `第 ${roundIndex} 轮 · 本轮示范 ${roundDemos} 次`;
   $('#lesson-count').textContent = `${samples.length} 次示范`; $('#learning-note').textContent = recording ? '正在录制你的真实按键。' : '最近 4 次示范会作为上下文送给模型，未修改模型权重。';
   $('#lessons').textContent = samples.slice(-4).map((s, i) => `${i + 1}. ${s.level.title} · ${s.outcome === 'fell' ? '跌落反例' : '操作示范'}`).join('　');
@@ -470,7 +487,6 @@ $('#finish-demo').addEventListener('click', () => { finishDemo(); start(); });
 $('#retry-pet').addEventListener('click', start);
 $('#restart').addEventListener('click', () => restartRound());
 $('#split').addEventListener('change', event => { splitView = event.target.checked; saveView(); update(); });
-$('#auto-round').addEventListener('change', event => { autoRound = event.target.checked; saveView(); update(); });
 $('#soundless-pause').addEventListener('click', () => { paused = !paused; idle(); $('#soundless-pause').textContent = paused ? '继续' : '暂停'; update(); canvas.focus(); });
 $('#generate').addEventListener('click', generate);
 $('#use-level').addEventListener('click', () => { if (prepared) { resetLevel(prepared.level); $('#level-source').textContent = `大模型生成 · ${prepared.model} · 物理验证通过`; prepared = null; $('#use-level').hidden = true; } });

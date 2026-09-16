@@ -26,8 +26,11 @@ export function starterLevel() {
 export function actor(spawn) { return { x: spawn.x, y: spawn.y, vx: 0, vy: 0, grounded: true, held: false, dead: false }; }
 export function progress() { return { coins: [], key: false, switchOn: false, won: false }; }
 export function copyProgress(p) { return { coins: [...p.coins], key: !!p.key, switchOn: !!p.switchOn, won: !!p.won }; }
+// Both players run the same rules on their own progress object: whoever you pass as `p`
+// collects the coins, carries the key, opens the door and can win. The page keeps one
+// progress object per side, so the human and the pet no longer share a score.
 export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
-  if (a.dead || (role === 'pet' && p.won)) return;
+  if (a.dead || p.won) return;
   const oldX = a.x, oldY = a.y;
   a.vx = [-1, 0, 1].includes(input.move) ? input.move * physics.speed : 0;
   if (input.jump && !a.held && a.grounded) { a.vy = physics.jump; a.grounded = false; }
@@ -35,7 +38,7 @@ export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
   if (!input.jump && a.vy < physics.cut) a.vy = physics.cut;
   a.x = Math.max(12, Math.min(level.width - 12, a.x + a.vx));
   const d = level.door;
-  if (role === 'pet' && !p.switchOn && a.y > d.y && a.y - physics.height < d.y + d.h && Math.abs(a.x - d.x) < 14) a.x = oldX < d.x ? d.x - 14 : d.x + 14;
+  if (!p.switchOn && a.y > d.y && a.y - physics.height < d.y + d.h && Math.abs(a.x - d.x) < 14) a.x = oldX < d.x ? d.x - 14 : d.x + 14;
   if (a.grounded && !level.platforms.some(s => Math.abs(s.y - a.y) < .1 && a.x >= s.x && a.x <= s.x + s.w)) a.grounded = false;
   if (!a.grounded) { a.vy += physics.gravity; a.y += a.vy; }
   if (a.vy >= 0) {
@@ -46,7 +49,7 @@ export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
   touch(a, role, level, p);
 }
 export function touch(a, role, level, p) {
-  if (role !== 'pet' || a.dead) return;
+  if (a.dead || p.won) return;
   const near = o => Math.abs(a.x - o.x) < 22 && Math.abs(a.y - 12 - o.y) < 26;
   level.coins.forEach((o, i) => { if (!p.coins.includes(i) && near(o)) p.coins.push(i); });
   if (near(level.key)) p.key = true;

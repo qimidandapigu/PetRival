@@ -3,12 +3,20 @@ import assert from 'node:assert/strict';
 import {starterLevel,actor,progress,step,touch,replayActions,verifyLevel,validateActions,validateLevel} from '../public/jump-world.mjs';
 import {planJump,generateJump} from '../server/jump-model.mjs';
 const fake = fn => ({mode:'model',info:()=>({model:'fixture-model'}),json:fn});
-test('complex level has a replayable witness, human cannot collect or open or finish',()=>{
+test('both players run the same rules on their own score, and the witness replays for either',()=>{
  const level=starterLevel(), proof=verifyLevel(level);assert.equal(proof.verified,true);
  assert.equal(replayActions(level,actor(level.spawn),progress(),proof.actions).progress.won,true);
- const human=replayActions(level,actor(level.spawn),progress(),proof.actions,'human');assert.deepEqual(human.progress,progress());
+ // The human is a full player now: same witness, same rules, its own progress object.
+ const human=replayActions(level,actor(level.spawn),progress(),proof.actions,'human');
+ assert.equal(human.progress.won,true);
+ assert.deepEqual(human.progress.coins,progress().coins.concat([0,1,2]));
+ const petProgress=progress();
+ touch(actor({x:level.coins[0].x,y:level.coins[0].y+12}),'human',level,human.progress);
+ assert.equal(human.progress.coins.includes(0),true);
+ assert.deepEqual(petProgress,progress(),'the human must not touch the pet score');
  const p=progress(), a=actor({x:914,y:400});for(let i=0;i<10;i++)step(a,{move:1,jump:false},level,p);assert.equal(a.x,914);
  p.key=true;touch(actor({x:176,y:400}),'pet',level,p);assert.equal(p.switchOn,true);step(a,{move:1,jump:false},level,p);assert.ok(a.x>914);
+ step(a,{move:1,jump:false},level,p);assert.equal(p.won,false,'the pet door opens only for the pet progress that carries the key');
 });
 test('unreachable key is rejected by bounded search; malformed actions cannot teleport',()=>{
  const l=starterLevel();l.key={x:1100,y:80};assert.equal(verifyLevel(l).verified,false);
