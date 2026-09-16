@@ -6,13 +6,12 @@
     <aside class="log-column" aria-label="小精灵的学习日志">
       <h2>学习日志</h2>
       <p class="log-hint">它每一步都写在这里：免费实验、花了调用的归纳与修复、每一轮误差、真跑结果、预测打分，以及你和它各自的跌落与通关。</p>
-      <pre id="lab-log" class="log-lines"></pre>
-      <h3>它现在会什么</h3>
-      <pre id="lab-knows" class="lab-knows">还没有进入实验室。</pre>
+      <div id="lab-log" class="log-lines"></div>
     </aside>
     <div class="stage-main">
   <section class="play-area" aria-label="横版跳跃教学游戏">
-    <div class="level-bar"><b id="level-title">高台上的钥匙</b> <small id="level-source">内置示范关 · 物理验证通过</small><span id="objective">你 0 / 3 · 小精灵 0 / 3</span></div>
+    <div class="stage-bar" id="stage-bar" role="tablist" aria-label="关卡阶梯"></div>
+    <div class="level-bar"><b id="level-title">第 1 关 · 先学会走</b> <small id="level-source">课程关 · 物理验证通过</small><span id="objective">你 0 / 2 · 小精灵 0 / 2</span></div>
     <div class="viewport"><canvas id="jump-canvas" width="1100" height="470" tabindex="0" aria-label="蓝色是你，绿色是小精灵。左右移动，空格跳跃。你们各有各的金币和机关。"></canvas><div class="legend"><span><i class="human-dot"></i>你 · 自己闯关</span><span><i class="pet-dot"></i>小精灵 · 自己闯关</span></div><div id="finish" hidden><b>这一次，它自己做到了。</b><p>金币和机关，都由小精灵亲手完成。</p><button id="next-level" type="button">再练一次 / 备新关 →</button></div></div>
     <div class="status-bar"><span class="status-light"></span><p id="pet-status" role="status">点击开始，让真实模型决定下一段动作；你可以同时练习。</p><span id="attempts">小精灵跌落 0 次 · 你跌落 0 次</span></div>
     <div class="tools"><button class="primary" id="teach" type="button">↶ 回去示范</button><button id="retry-pet" type="button">开始 / 继续模型闯关</button><button id="finish-demo" hidden type="button">示范完成，让它试</button><button id="restart" type="button">重开一轮（保留学习）</button><label class="follow">镜头 <select id="camera"><option value="human">跟着我</option><option value="pet">跟着小精灵</option></select></label><label class="follow"><input type="checkbox" id="split" checked> 分屏：它上我下</label><span id="round-info" class="round-info">第 1 轮 · 本轮示范 0 次</span></div>
@@ -20,6 +19,10 @@
   </section>
   <section class="below"><div class="instruction"><h2>你做一次，它试一次。</h2><p><kbd>←</kbd> <kbd>→</kbd> 或 <kbd>A</kbd> <kbd>D</kbd> 移动，<kbd>空格</kbd> 跳跃。<strong>按久一点，跳得远一点。</strong></p><p>你和小精灵是两个人：金币、钥匙、机关、通关各算各的，你收你的，它收它的，谁摔了谁自己复活重开。点击“回去示范”，录制最多 4 秒的真实操作，再让模型参考。</p></div><div class="learning"><div class="learning-heading"><h2>它的学习笔记</h2><b id="lesson-count">0 次示范</b></div><p id="learning-note">最近 4 次示范会作为上下文送给模型，包括标注为跌落的反例。</p><div id="lessons"></div><details><summary>这次试玩怎么学习、怎么保存？</summary><p>真实大模型根据关卡、角色状态、你的示范和上次执行结果输出按键。示范是上下文记忆，未训练模型权重，也不保证一次学会。等待模型时精灵时间暂停，你仍能操作；没有脚本代打。每轮最多 16 次调用，可手动继续。</p><p id="save-note">示范只保存在当前浏览器，按宠物区分，不跨设备同步、不计积分。开始闯关和备题会调用真实模型并产生服务端 Token 用量。</p><button id="forget" type="button">清空这只精灵的跳跃笔记</button></details></div></section>
     </div>
+    <aside class="knows-column" aria-label="它现在会什么">
+      <h2>它现在会什么</h2>
+      <pre id="lab-knows" class="lab-knows">还没有开始。</pre>
+    </aside>
   </div>
   <section class="lab" id="lab"><div class="learning-heading"><h2>空白实验室</h2><b id="lab-world">还没开始</b></div>
     <p>这个实验室里的小精灵只有三个无名通道 <kbd>A</kbd> <kbd>B</kbd> <kbd>C</kbd>。它不知道哪个通道会跳、重力有多大、什么算过关、金币和门是干什么的。你按 <kbd>←</kbd> <kbd>→</kbd> <kbd>空格</kbd> 的示范，会先被记成一次带标签的实验；结论要它自己归纳。</p>

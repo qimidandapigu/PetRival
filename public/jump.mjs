@@ -1,12 +1,26 @@
-import { starterLevel, actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
+import { actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
 import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
+import { STAGES, stageLevel, stageInfo, nextStage, unlockAfter, stagePickerState } from './jump-stages.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
-let level = starterLevel(), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress(), humanProgress = freshProgress();
+let stageId = 1, clearedStages = [], stageKey = 'petrival.jump.stage.v1';
+let level = stageLevel(stageId), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress(), humanProgress = freshProgress();
 let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', storageKey = 'petrival.jump.v2.guest';
 let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
 let queue = [], calls = 0, falls = 0, humanFalls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
-let status = '你可以先练习。点击开始后，真实模型才会决定精灵的动作。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false;
+let status = '第 1 关只要一直往右走。点开始让小精灵自己试，或你亲自走一遍给它看。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false;
+let lastGoal = '', petWins = 0, humanWins = 0;
+function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins })); } catch {} }
+function loadStage(stored) {
+  if (!stored) return;
+  try {
+    stageId = Math.min(STAGES.length, Math.max(1, Math.trunc(Number(stored.stageId)) || 1));
+    clearedStages = unlockAfter(Array.isArray(stored.cleared) ? stored.cleared : [], 0).filter(id => id <= STAGES.length);
+    petWins = Number.isInteger(stored.petWins) ? stored.petWins : 0;
+    humanWins = Number.isInteger(stored.humanWins) ? stored.humanWins : 0;
+    level = stageLevel(stageId);
+  } catch { stageId = 1; clearedStages = []; }
+}
 // Blank lab: this world's channel roles and physics exist only in `lab.world`, and `mode`
 // decides whether the model is playing a designed level or learning from scratch.
 let mode = 'classic', labStorageKey = 'petrival.jump.lab.v1.guest';
@@ -62,12 +76,37 @@ async function init() {
     } }
   } catch { status = '账号服务暂不可用；你仍能练习，模型开始时会提示连接结果。'; }
   labStorageKey = storageKey.replace('jump.v2', 'jump.lab.v1');
+  stageKey = storageKey.replace('jump.v2', 'jump.stage.v1');
+  try { loadStage(JSON.parse(localStorage.getItem(stageKey) || 'null')); } catch {}
   try { const stored = JSON.parse(localStorage.getItem(storageKey) || '[]'); samples = (Array.isArray(stored) ? stored : []).slice(-8).filter(d => { try { validateLevel(d.level); validateActions(d.actions); return d.from && d.to; } catch { return false; } }); } catch {}
   try { loadLab(JSON.parse(localStorage.getItem(labStorageKey) || 'null')); } catch {}
   try { const view = JSON.parse(localStorage.getItem(viewKey) || 'null');
     if (view) splitView = view.splitView !== false; } catch {}
   $('#split').checked = splitView;
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
   ready = true; update();
+}
+// One stage at a time, in order: the ladder starts at "walk right" so a pet that knows
+// nothing can still finish something on the first try.
+function goToStage(id, reason = '') {
+  const target = Math.max(1, Math.min(STAGES.length, Math.trunc(Number(id)) || 1));
+  if (target !== 1 && !clearedStages.includes(target) && !clearedStages.includes(target - 1))
+    return status = `第 ${target} 关还没解锁：先过第 ${target - 1} 关。`;
+  cancel(); idle(); recording = null; stageId = target; level = stageLevel(target);
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; lastGoal = '';
+  const info = stageInfo(target);
+  $('#level-source').textContent = `课程第 ${target} 关 · 物理验证通过`;
+  status = `第 ${target} 关「${info.name}」${reason}：${info.skill}提示：${info.hint}`;
+  logEvent('world', `进入第 ${target} 关「${info.name}」${reason}：${info.skill}`);
+  saveStage(); update(); canvas.focus();
+}
+function markCleared(id, who) {
+  if (clearedStages.includes(id)) return;
+  clearedStages = unlockAfter(clearedStages, id); saveStage();
+  const next = nextStage(id);
+  logEvent('win', `${who}通关第 ${id} 关「${stageInfo(id).name}」${next ? `，解锁第 ${next} 关「${stageInfo(next).name}」` : '，六关全部通过'}`);
+  update();
 }
 function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; }
 // A round reset moves both of you back to the spawn and clears the objective, and keeps
@@ -113,6 +152,7 @@ async function decide() {
     status = learning
       ? `${result.model}：${result.goal || '试探这个世界'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）· ${result.prediction ? '已先下预测' : '这次没给预测'}`
       : `${result.model}：${result.goal || '执行下一段动作'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范`;
+    lastGoal = result.goal || '';
   } catch (e) { if (current === epoch) { enabled = false; logEvent('error', `决策失败：${e.name === 'TimeoutError' ? '模型等待超时' : e.message}`); saveLab(); status = `${e.name === 'TimeoutError' ? '模型等待超时' : e.message}；真人可继续，点击开始重试。`; } }
   finally { if (current === epoch) { pending = false; update(); } }
 }
@@ -201,8 +241,12 @@ function advance() {
     logEvent('fall', `你摔了（第 ${humanFalls} 次），已复活回到起点、自己的金币和机关重置`);
   }
   if (humanProgress.won && !humanWon) {
-    humanWon = true; logEvent('win', `你自己也通关了：收齐 ${level.coins.length} 枚金币、取钥匙、开机关、到终点`);
-    status = '你自己也通关了。小精灵那边还在继续，它的进度是它自己的。';
+    humanWon = true; humanWins++;
+    logEvent('win', `你自己通关了第 ${stageId} 关：收齐 ${level.coins.length} 枚金币、取钥匙、开机关、到终点`);
+    markCleared(stageId, '你');
+    const next = nextStage(stageId);
+    status = next ? `你自己通关了第 ${stageId} 关。第 ${next} 关「${stageInfo(next).name}」已解锁，也可以让小精灵再来一次这一关。`
+      : '你自己通关了最后一关。小精灵那边还在继续。';
   }
   if (enabled && !pending && !recording) {
     if (queue.length) {
@@ -215,7 +259,17 @@ function advance() {
       }
     } else decide();
   }
-  if (progress.won) { enabled = false; status = '小精灵亲自收齐金币、取钥匙、开门并到达终点。'; idle(); }
+  if (progress.won) {
+    enabled = false; idle();
+    if (!clearedStages.includes(stageId)) {
+      petWins++; markCleared(stageId, petName);
+      logEvent('win', `${petName}自己通关了第 ${stageId} 关「${stageInfo(stageId).name}」（本轮模型调用 ${calls} 次、跌落 ${falls} 次）`);
+    }
+    const next = nextStage(stageId);
+    status = next ? `${petName}自己收齐金币、取钥匙、开门、到达终点。第 ${next} 关「${stageInfo(next).name}」已解锁。`
+      : `${petName}通关了最后一关「${stageInfo(stageId).name}」。`;
+    $('#next-level').textContent = next ? `进入第 ${next} 关：${stageInfo(next).name} →` : '再练一次 →';
+  }
   // A fall is survivable for both sides: the pet comes back on its own and keeps trying.
   if (pet.dead && petRespawnAt && tick >= petRespawnAt) {
     pet = actor(level.spawn); progress = freshProgress(); petRespawnAt = 0;
@@ -256,8 +310,8 @@ function nextWorld({ first = false } = {}) {
 }
 function backToClassic() {
   mode = 'classic'; cancel(); recording = null;
-  resetLevel(starterLevel()); $('#level-source').textContent = '内置示范关 · 物理验证通过';
-  $('#lab-enter').hidden = false; $('#back-classic').hidden = true; status = '回到示范课：这个世界的物理和目标是明说的。'; update();
+  $('#lab-enter').hidden = false; $('#back-classic').hidden = true;
+  goToStage(stageId, '（回到课程）');
 }
 async function labPrior() {
   if (mode !== 'lab' || pending) return;
@@ -345,23 +399,56 @@ function labRunModelPlan() {
 function renderLog() {
   const when = at => { const d = new Date(at || Date.now());
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
-  $('#lab-log').textContent = (lab.log || []).length
-    ? [...lab.log].reverse().map(entry => `[${when(entry.at)}] ${LOG_KINDS[entry.kind] || entry.kind}｜${entry.text}`).join('\n')
-    : '还没有记录。它会记录：换世界、先验猜测、免费实验台、你的示范、归纳、每一轮世界模型误差、规划与真跑、每次决策、预测打分、双方的跌落与复活、重开一轮、揭晓真相。';
+  const box = $('#lab-log');
+  const entries = [...(lab.log || [])].reverse();
+  if (!entries.length) {
+    box.textContent = '还没有记录。它会记录：每关的进入与通关、先验猜测、免费实验台、你的示范、归纳、每一轮世界模型误差、规划与真跑、每次决策、预测打分、双方的跌落与复活、重开一轮、揭晓真相。';
+    return;
+  }
+  // One element per line so the time, the category chip and the text each keep their own
+  // column instead of running together in a wall of monospaced text.
+  box.replaceChildren(...entries.map(entry => {
+    const row = document.createElement('div'); row.className = `log-row log-${entry.kind}`;
+    const time = document.createElement('span'); time.className = 'log-time'; time.textContent = when(entry.at);
+    const kind = document.createElement('span'); kind.className = 'log-kind'; kind.textContent = LOG_KINDS[entry.kind] || entry.kind;
+    const text = document.createElement('span'); text.className = 'log-text'; text.textContent = entry.text;
+    row.append(time, kind, text);
+    return row;
+  }));
+}
+// The right column answers "what has it learned so far" in both modes: in the lesson it is
+// the stage ladder and what the model is currently trying, in the lab it is the notebook.
+function renderKnows() {
+  if (!lab.world) {
+    const lines = [];
+    lines.push(clearedStages.length
+      ? `已经通过 ${clearedStages.length}/${STAGES.length} 关：${clearedStages.map(id => `第 ${id} 关「${stageInfo(id).name}」`).join('、')}`
+      : '还没有通过任何一关。第 1 关只要一直往右走。');
+    const info = stageInfo(stageId);
+    lines.push(`当前第 ${stageId} 关「${info.name}」：${info.skill}`);
+    lines.push(`它这一关：模型调用 ${calls}/16 次 · 跌落 ${falls} 次${lastGoal ? ` · 它现在想「${lastGoal}」` : ' · 还没开始'}`);
+    lines.push(`你这一关：金币 ${humanProgress.coins.length}/${level.coins.length} · ${humanProgress.key ? '已取钥匙' : '还没拿钥匙'} · ${humanProgress.switchOn ? '机关已开' : '机关没开'} · 跌落 ${humanFalls} 次`);
+    lines.push(`通关次数：它自己 ${petWins} 次 · 你 ${humanWins} 次`);
+    const last = samples[samples.length - 1];
+    lines.push(last ? `你的示范：${samples.length} 次（最近一次 ${last.outcome === 'fell' ? '摔了' : '成功'}，${last.actions.reduce((n, a) => n + a.frames, 0)} 帧）` : '你的示范：还没有。点「回去示范」，它下一次决策就会参考。');
+    lines.push(nextStage(stageId) && clearedStages.includes(stageId) ? `下一关：第 ${nextStage(stageId)} 关「${stageInfo(nextStage(stageId)).name}」（已解锁）` : '过掉这一关就会解锁下一关。');
+    $('#lab-knows').textContent = lines.join('\n');
+    return;
+  }
+  $('#lab-knows').textContent = labKnowsText();
 }
 function updateLab() {
   // The log belongs to the whole page, not to the lab: falls, rounds and demonstrations
   // happen in the classic lesson too, and the player must be able to read them there.
   renderLog();
+  renderKnows();
   if (!lab.world) {
     $('#lab-world').textContent = '还没开始';
     $('#lab-notebook').textContent = '还没有进入实验室。';
     $('#lab-score').textContent = '点“进入实验室”抽第一个世界。';
     $('#lab-model-out').textContent = '';
-    $('#lab-knows').textContent = (lab.log || []).length
-      ? '还没进入实验室。上面的日志已经记下了示范课里发生的事（示范、跌落、重开）。进入实验室后这里会显示它已经学会了什么。'
-      : '还没有进入实验室。点“进入实验室”抽第一个世界，或先在示范课里录一次示范。';
     $('#lab-answer').textContent = '';
+    renderStages();
     return;
   }
   const notes = summarizeNotebook(lab.notebook), confirmed = notes.filter(n => n.state === '确认').length;
@@ -382,16 +469,35 @@ function updateLab() {
     : '';
   const knows = summarizeKnowledge({ notebook: lab.notebook, worldModel: lab.worldModel, plan: lab.plan,
     modelRuns: lab.modelRuns || [], accuracy: lab.accuracy, answer: lab.answer });
+  $('#lab-knows').textContent = labKnowsText(knows);
+}
+function labKnowsText(knows = summarizeKnowledge({ notebook: lab.notebook, worldModel: lab.worldModel, plan: lab.plan,
+  modelRuns: lab.modelRuns || [], accuracy: lab.accuracy, answer: lab.answer })) {
   const channelLines = knows.channels.map(c => {
     if (!c.known) return `通道 ${c.channel}：还不知道${c.actual ? `（真相是${roleName(c.actual)}）` : ''}`;
     const verdict = c.agrees === null ? '' : c.agrees ? '　✓ 和真相一致' : '　✗ 和真相不符';
     return `通道 ${c.channel}：${c.claims.join('；')}${verdict}`;
   });
-  $('#lab-knows').textContent = [
+  return [
+    `实验室：${labWorldName()}（种子 ${lab.seed}）`,
     ...knows.lines,
     ...channelLines,
     `手册统计：确认 ${knows.confirmed} 条 · 待验证 ${knows.pending} 条 · 猜想 ${knows.hypotheses} 条 · 已推翻 ${knows.refuted} 条`,
   ].join('\n');
+}
+// The ladder bar: cleared stages are replayable, the next one is open, the rest are locked.
+function renderStages() {
+  const bar = $('#stage-bar');
+  if (mode === 'lab') { bar.replaceChildren(); return; }
+  bar.replaceChildren(...stagePickerState(clearedStages, stageId).map(stage => {
+    const chip = document.createElement('button');
+    chip.type = 'button'; chip.className = 'stage-chip'; chip.dataset.stage = String(stage.id);
+    chip.disabled = stage.locked;
+    chip.setAttribute('aria-current', stage.current ? 'true' : 'false');
+    chip.textContent = `${stage.cleared ? '✓ ' : stage.locked ? '🔒 ' : ''}第 ${stage.id} 关 · ${stage.name}`;
+    chip.title = stage.locked ? `先过第 ${stage.id - 1} 关` : `${stage.skill}提示：${stage.hint}`;
+    return chip;
+  }));
 }
 const LOG_KINDS = { world: '世界', round: '重开', prior: '先验', battery: '实验台', demo: '你的示范', induce: '归纳', learn: '学到', model: '世界模型', plan: '规划', act: '行动', predict: '预测', reveal: '揭晓', error: '失败', fall: '跌落', win: '通关' };
 function update() {
@@ -484,13 +590,17 @@ for (const button of document.querySelectorAll('[data-key]')) {
 function enterLab() {
   if (!lab.world) return nextWorld({ first: true });
   mode = 'lab'; cancel(); recording = null; idle();
-  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
-  calls = falls = 0; feedback = ''; paused = false; lab.pending = null; $('#soundless-pause').textContent = '暂停';
+  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; lab.pending = null; $('#soundless-pause').textContent = '暂停';
   $('#level-source').textContent = `空白实验室 · ${labWorldName()} · 机制保密`;
   logEvent('world', `回到${labWorldName()}：手册 ${summarizeNotebook(lab.notebook).length} 条、实验 ${lab.traces.length} 次、累计模型调用 ${lab.calls} 次`);
   status = '回到这个世界的实验室：机制手册和实验记录都还在。';
   saveLab(); $('#lab-enter').hidden = true; $('#back-classic').hidden = false; update(); canvas.focus();
 }
+$('#stage-bar').addEventListener('click', event => {
+  const chip = event.target.closest('[data-stage]');
+  if (chip && !chip.disabled) goToStage(Number(chip.dataset.stage));
+});
 $('#lab-enter').addEventListener('click', enterLab);
 $('#back-classic').addEventListener('click', backToClassic);
 $('#lab-prior').addEventListener('click', labPrior);
@@ -510,6 +620,10 @@ $('#split').addEventListener('change', event => { splitView = event.target.check
 $('#soundless-pause').addEventListener('click', () => { paused = !paused; idle(); $('#soundless-pause').textContent = paused ? '继续' : '暂停'; update(); canvas.focus(); });
 $('#generate').addEventListener('click', generate);
 $('#use-level').addEventListener('click', () => { if (prepared) { resetLevel(prepared.level); $('#level-source').textContent = `大模型生成 · ${prepared.model} · 物理验证通过`; prepared = null; $('#use-level').hidden = true; } });
-$('#next-level').addEventListener('click', () => { resetLevel(); $('#level-intent').focus(); });
+$('#next-level').addEventListener('click', () => {
+  const next = nextStage(stageId);
+  if (next && clearedStages.includes(stageId)) goToStage(next, '（上一关已通过）');
+  else { restartRound(); $('#level-intent').focus(); }
+});
 $('#forget').addEventListener('click', () => { cancel(); samples = []; recording = null; save(); status = '本浏览器中这只精灵的跳跃示范已清空。'; update(); });
 init(); requestAnimationFrame(frame);

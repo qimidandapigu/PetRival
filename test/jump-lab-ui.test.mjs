@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import * as engine from '../public/jump-world.mjs';
 import * as lab from '../public/jump-lab.mjs';
+import * as jumpStages from '../public/jump-stages.mjs';
 import {defaultAppearance,validateAppearance,petDisplayName} from '../shared/pet.mjs';
 const flush = () => new Promise(r => setImmediate(r));
 test('every element the jump page drives exists in jump.html',()=>{
@@ -20,16 +21,21 @@ async function fixture(){
  const record=(()=>{let fill='';return {set fillStyle(v){fill=v;},get fillStyle(){return fill;},fillRect:(...a)=>ops.push(['fillRect',...a,fill]),save:()=>ops.push(['save']),restore:()=>ops.push(['restore']),
    beginPath:()=>ops.push(['beginPath']),rect:(...a)=>ops.push(['rect',...a]),clip:()=>ops.push(['clip']),
    translate:(...a)=>ops.push(['translate',...a]),fillText:(...a)=>ops.push(['fillText',...a])};})();
- const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#camera'?'human':'',hidden:true,disabled:false,checked:false,textContent:'',dataset:{},addEventListener(t,h){this[t]=h;},focus(){},closest(){return null;},getContext(){return id==='#jump-canvas'?record:{};},clientWidth:900});return nodes.get(id);};
+ const textOf=el=>String(el._text||'')+(el.children||[]).map(textOf).join('');
+ const dom=(tag)=>{const el={tagName:tag,className:'',_text:'',dataset:{},children:[],disabled:false,attributes:{},
+   get textContent(){return textOf(this);},set textContent(v){this._text=String(v);this.children=[];},
+   addEventListener(t,h){this[t]=h;},setAttribute(k,v){this.attributes[k]=v;},append(...kids){this.children.push(...kids);},
+   replaceChildren(...kids){this.children=kids;this._text='';},closest(){return null;}};return el;};
+ const node=id=>{if(!nodes.has(id))nodes.set(id,Object.assign(dom(id==='#jump-canvas'?'canvas':'div'),{value:id==='#camera'?'human':'',hidden:true,checked:false,focus(){},getContext(){return id==='#jump-canvas'?record:{};},clientWidth:900}));return nodes.get(id);};
  const answer=(path,data)=>{const queue=waiting.get(path);assert.ok(queue&&queue.length,`no pending ${path}`);queue.shift()({ok:true,status:200,json:async()=>data});};
- const context=vm.createContext({...engine,...lab,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
- document:{querySelector:node,querySelectorAll:()=>[],addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
+ const context=vm.createContext({...engine,...lab,...jumpStages,freshProgress:engine.progress,defaultAppearance,validateAppearance,petDisplayName,AbortSignal,AbortController,crypto,
+ document:{querySelector:node,querySelectorAll:()=>[],createElement:dom,addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
  localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},fetch:(path,opts)=>{
    if(path==='/api/session'||path==='/api/state')return Promise.resolve({ok:true,json:async()=>({mine:{id:'p',name:'小精灵',species:'xiaotangyuan'}})});
    return new Promise(resolve=>{const queue=waiting.get(path)||[];queue.push(resolve);waiting.set(path,queue);queue.body=JSON.parse(opts.body);});
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,draw,fall:()=>{pet.dead=true;petRespawnAt=tick+45;},get:()=>({human,pet,progress,humanProgress,samples,queue,enabled,pending,mode,lab,level,status,splitView,roundIndex,roundDemos,tick,humanFalls,humanWon})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,nextWorld,labBattery,labInduce,labPrior,labReveal,labWriteModel,labRunModelPlan,restartRound,goToStage,draw,fall:()=>{pet.dead=true;petRespawnAt=tick+45;},get:()=>({human,pet,progress,humanProgress,samples,queue,enabled,pending,mode,lab,level,status,splitView,roundIndex,roundDemos,tick,humanFalls,humanWon,stageId,clearedStages,petWins,humanWins})};',context);
  await flush();
  return {api:context.fixture,saved,waiting,node,answer,ops,canvas:node('#jump-canvas'),body:path=>waiting.get(path).body,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}})};
 }
@@ -264,8 +270,38 @@ test('the log renders and persists in the classic lesson too, without a lab worl
  for(let i=0;i<50;i++)f.api.advance();
  assert.equal(f.api.get().lab.log.some(e=>e.kind==='fall'),true,'a fall in the classic lesson is logged');
  assert.equal(f.node('#lab-log').textContent.includes('跌落'),true);
- assert.equal(f.node('#lab-knows').textContent.includes('示范课'),true,'the knowledge panel says why it is empty');
+ assert.equal(f.node('#lab-knows').textContent.includes('还没有通过任何一关'),true,'the right column shows the ladder state');
+ assert.equal(f.node('#lab-knows').textContent.includes('当前第 1 关'),true);
  f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<10;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
  assert.equal(f.api.get().lab.log.some(e=>e.kind==='demo'&&e.text.includes('示范课')),true,'a classic demonstration is logged');
  assert.equal(f.node('#lab-log').textContent.includes('你的示范'),true);
+});
+test('the ladder starts at walk-right and unlocks the next stage when either side clears it',async()=>{
+ const f=await fixture();
+ assert.equal(f.api.get().stageId,1);
+ assert.equal(f.api.get().level.title,'第 1 关 · 先学会走');
+ let bar=f.node('#stage-bar');
+ assert.equal(bar.children.length,6,'six stages are offered');
+ assert.equal(bar.children[1].disabled,true,'stage 2 is locked until stage 1 is cleared');
+ assert.equal(bar.children[0].textContent.includes('第 1 关 · 先学会走'),true);
+ assert.equal(bar.children[0].attributes['aria-current'],'true');
+ f.key('keydown','ArrowRight');
+ for(let i=0;i<300;i++)f.api.advance();
+ f.key('keyup','ArrowRight');
+ const s=f.api.get();
+ assert.equal(s.humanProgress.won,true,'walking right is enough to clear stage 1');
+ assert.deepEqual(s.clearedStages,[1]);
+ bar=f.node('#stage-bar');
+ assert.equal(bar.children[1].disabled,false,'clearing stage 1 unlocks stage 2');
+ assert.equal(bar.children[0].textContent.startsWith('✓ '),true,'the cleared stage is ticked');
+ assert.equal(s.lab.log.some(e=>e.kind==='win'&&e.text.includes('第 1 关')),true);
+ f.api.goToStage(6);
+ assert.equal(f.api.get().stageId,1,'a locked stage is refused');
+ assert.equal(f.api.get().status.includes('还没解锁'),true);
+ f.api.goToStage(2);
+ assert.equal(f.api.get().stageId,2);
+ assert.equal(f.api.get().level.title,'第 2 关 · 学会跳');
+ assert.equal(f.api.get().pet.x,f.api.get().level.spawn.x);
+ assert.equal(JSON.parse(f.saved.get('petrival.jump.stage.v1.pet.p')).stageId,2,'the ladder position is remembered');
+ assert.equal(f.node('#level-source').textContent.includes('课程第 2 关'),true);
 });
