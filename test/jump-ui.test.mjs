@@ -18,7 +18,7 @@ async function fixture(level){
  return {ok:true,json:async()=>({mine:{id:'p',name:'小精灵',species:'xiaotangyuan'}})};
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,resetLevel,learnLesson,get:()=>({human,pet,progress,samples,pending,queue,enabled,prefetched,falls})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,resetLevel,learnLesson,get:()=>({human,pet,progress,samples,pending,queue,enabled,prefetched,falls,attempts})};',context);
  await new Promise(r=>setImmediate(r));return {api:context.fixture,node,saved,requests,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}}),resolve:data=>resolveDecision(data)};
 }
 const result={method:'model',model:'fixture',latencyMs:10,actions:[{move:1,jump:false,frames:10}],goal:'走向高台',usedDemonstrations:[],demonstrationsProvided:0};
@@ -57,4 +57,15 @@ test('death prefetch: a fatal segment is pre-planned from the respawn and adopte
  assert.equal(f.api.get().falls,1,'the foreseen fall still happened and was recorded');
  assert.equal(f.requests.length,3,'the respawn needed no live decision — the adopted plan simply chained another prefetch');
  assert.ok(f.api.get().pet.x>64,'the respawned pet is executing the prefetched plan');
+});
+
+test('attempt cards record causal events: pickups and the closed door blocking the way',async()=>{
+ const f=await fixture(jumpStages.stageLevel(5));f.api.start();await new Promise(r=>setImmediate(r));
+ const walk={...result,actions:[{move:1,jump:false,frames:90},{move:1,jump:false,frames:90},{move:1,jump:false,frames:90},{move:1,jump:false,frames:90}]};
+ f.resolve(walk);await new Promise(r=>setImmediate(r));
+ for(let i=0;i<400;i++)f.api.advance();
+ const card=f.api.get().attempts[0];
+ assert.ok(card,'the finished segment was recorded');
+ assert.ok(card.events.some(e=>e.includes('捡到金币')),'the coin pickup is in the card: '+JSON.stringify(card.events));
+ assert.ok(card.events.some(e=>e.includes('被关着的门挡住')),'the closed-door block is in the card: '+JSON.stringify(card.events));
 });

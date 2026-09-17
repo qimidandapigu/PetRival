@@ -292,7 +292,7 @@ test('the ladder starts at walk-right and unlocks the next stage when either sid
  assert.equal(f.api.get().stageId,1);
  assert.equal(f.api.get().level.title,'第 1 关 · 先学会走');
  let bar=f.node('#stage-bar');
- assert.equal(bar.children.length,6,'six stages are offered');
+ assert.equal(bar.children.length,7,'seven stages are offered');
  assert.equal(bar.children[1].disabled,true,'stage 2 is locked until stage 1 is cleared');
  assert.equal(bar.children[0].textContent.includes('第 1 关 · 先学会走'),true);
  assert.equal(bar.children[0].attributes['aria-current'],'true');

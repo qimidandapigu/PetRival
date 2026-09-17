@@ -11,12 +11,17 @@ export function validateLevel(raw) {
   if (!point(raw.spawn) || !point(raw.goal) || !point(raw.key) || !point(raw.switch)) fail('出生点、终点、钥匙和开关坐标无效');
   if (!Array.isArray(raw.coins) || raw.coins.length < 1 || raw.coins.length > 5 || raw.coins.some(p => !point(p))) fail('金币需要 1–5 个合法坐标');
   if (!raw.door || !point(raw.door) || !n(raw.door.h, 48, 320) || raw.door.y + raw.door.h > 420) fail('门需要 x/y/h');
+  if (raw.coop !== undefined) {
+    if (!raw.coop || !Array.isArray(raw.coop.plates) || raw.coop.plates.length !== 2 || raw.coop.plates.some(p => !point(p))) fail('配合关需要恰好两块合法坐标压力板');
+    if (Math.abs(raw.coop.plates[0].x - raw.coop.plates[1].x) < 96) fail('两块压力板必须相距至少 96 像素，否则一个人能同时踩住');
+  }
   const p = raw.platforms.find(p => Math.abs(p.y - raw.spawn.y) < .1 && raw.spawn.x >= p.x + 12 && raw.spawn.x <= p.x + p.w - 12);
   if (!p) fail('出生点必须在安全平台上');
   return { version: 2, title: String(raw.title || '小精灵的新冒险').slice(0, 40), width: raw.width,
     platforms: raw.platforms.map(({ x, y, w }) => ({ x, y, w })), coins: raw.coins.map(({ x, y }) => ({ x, y })),
     ...Object.fromEntries(['spawn', 'goal', 'key', 'switch'].map(k => [k, { x: raw[k].x, y: raw[k].y }])),
-    door: { x: raw.door.x, y: raw.door.y, h: raw.door.h } };
+    door: { x: raw.door.x, y: raw.door.y, h: raw.door.h },
+    ...(raw.coop ? { coop: { plates: raw.coop.plates.map(({ x, y }) => ({ x, y })) } } : {}) };
 }
 export function starterLevel() {
   return validateLevel({ version: 2, title: '高台上的钥匙', width: 1152, spawn: { x: 64, y: 400 }, goal: { x: 1088, y: 400 },
@@ -26,10 +31,21 @@ export function starterLevel() {
 export function actor(spawn) { return { x: spawn.x, y: spawn.y, vx: 0, vy: 0, grounded: true, held: false, dead: false }; }
 export function progress() { return { coins: [], key: false, switchOn: false, won: false }; }
 export function copyProgress(p) { return { coins: [...p.coins], key: !!p.key, switchOn: !!p.switchOn, won: !!p.won }; }
+// Co-op levels (level.coop): pickups live in a shared `world` object both sides write to; the
+// door latches open only while BOTH pressure plates are occupied at the same moment (one actor
+// can never do that alone); each side wins individually by reaching the goal afterwards.
+export function worldProgress() { return { coins: [], key: false, switchOn: false }; }
+export function copyWorld(w) { return { coins: [...w.coins], key: !!w.key, switchOn: !!w.switchOn }; }
+export function latchPlates(level, world, ...actors) {
+  if (!level.coop || world.switchOn) return false;
+  const on = plate => actors.some(a => a && !a.dead && !a.won && Math.abs(a.x - plate.x) < 22 && Math.abs(a.y - 12 - plate.y) < 26);
+  if (level.coop.plates.every(on)) return world.switchOn = true;
+  return false;
+}
 // Both players run the same rules on their own progress object: whoever you pass as `p`
 // collects the coins, carries the key, opens the door and can win. The page keeps one
 // progress object per side, so the human and the pet no longer share a score.
-export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
+export function step(a, input, level, p, role = 'pet', physics = PHYSICS, world = null) {
   if (a.dead || p.won) return;
   const oldX = a.x, oldY = a.y;
   a.vx = [-1, 0, 1].includes(input.move) ? input.move * physics.speed : 0;
@@ -37,8 +53,8 @@ export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
   a.held = !!input.jump;
   if (!input.jump && a.vy < physics.cut) a.vy = physics.cut;
   a.x = Math.max(12, Math.min(level.width - 12, a.x + a.vx));
-  const d = level.door;
-  if (!p.switchOn && a.y > d.y && a.y - physics.height < d.y + d.h && Math.abs(a.x - d.x) < 14) a.x = oldX < d.x ? d.x - 14 : d.x + 14;
+  const d = level.door, doorOpen = world ? world.switchOn : p.switchOn;
+  if (!doorOpen && a.y > d.y && a.y - physics.height < d.y + d.h && Math.abs(a.x - d.x) < 14) a.x = oldX < d.x ? d.x - 14 : d.x + 14;
   if (a.grounded && !level.platforms.some(s => Math.abs(s.y - a.y) < .1 && a.x >= s.x && a.x <= s.x + s.w)) a.grounded = false;
   if (!a.grounded) { a.vy += physics.gravity; a.y += a.vy; }
   if (a.vy >= 0) {
@@ -46,15 +62,17 @@ export function step(a, input, level, p, role = 'pet', physics = PHYSICS) {
     if (surfaces.length) { a.y = surfaces[0].y; a.vy = 0; a.grounded = true; }
   }
   if (a.y > 470) a.dead = true;
-  touch(a, role, level, p);
+  touch(a, role, level, p, world);
 }
-export function touch(a, role, level, p) {
+export function touch(a, role, level, p, world = null) {
   if (a.dead || p.won) return;
   const near = o => Math.abs(a.x - o.x) < 22 && Math.abs(a.y - 12 - o.y) < 26;
-  level.coins.forEach((o, i) => { if (!p.coins.includes(i) && near(o)) p.coins.push(i); });
-  if (near(level.key)) p.key = true;
-  if (p.key && near(level.switch) && a.grounded) p.switchOn = true;
-  if (p.key && p.switchOn && p.coins.length === level.coins.length && Math.abs(a.x - level.goal.x) < 24 && Math.abs(a.y - level.goal.y) < 28) p.won = true;
+  const bag = world || p;
+  level.coins.forEach((o, i) => { if (!bag.coins.includes(i) && near(o)) bag.coins.push(i); });
+  if (near(level.key)) bag.key = true;
+  // Co-op doors are latched by the two pressure plates (latchPlates), not by the floor switch.
+  if (!world && bag.key && near(level.switch) && a.grounded) bag.switchOn = true;
+  if (bag.key && bag.switchOn && bag.coins.length === level.coins.length && Math.abs(a.x - level.goal.x) < 24 && Math.abs(a.y - level.goal.y) < 28) p.won = true;
 }
 export function validateActions(raw, maxFrames = 240) {
   if (!Array.isArray(raw) || !raw.length || raw.length > 12) throw new Error('动作应为 1–12 段');
@@ -66,10 +84,13 @@ export function validateActions(raw, maxFrames = 240) {
   if (total > maxFrames) throw new Error(`动作总长度超过 ${maxFrames} 帧`);
   return actions;
 }
-export function replayActions(level, start, initial, actions, role = 'pet', physics = PHYSICS) {
-  const a = { ...start }, p = copyProgress(initial);
-  for (const action of actions) for (let i = 0; i < action.frames && !a.dead && !p.won; i++) step(a, action, level, p, role, physics);
-  return { actor: a, progress: p };
+export function replayActions(level, start, initial, actions, role = 'pet', physics = PHYSICS, world = null, bystander = null) {
+  const a = { ...start }, p = copyProgress(initial), w = world ? copyWorld(world) : null;
+  for (const action of actions) for (let i = 0; i < action.frames && !a.dead && !p.won; i++) {
+    step(a, action, level, p, role, physics, w);
+    if (w) latchPlates(level, w, a, bystander);
+  }
+  return { actor: a, progress: p, ...(w ? { world: w } : {}) };
 }
 export function observation(level, a, p) {
   return { level, actor: { x: +a.x.toFixed(1), y: +a.y.toFixed(1), vx: a.vx, vy: +a.vy.toFixed(2), grounded: a.grounded, held: a.held },
@@ -115,7 +136,7 @@ export function verifyLevel(level, { maxNodes = 9000, physics = PHYSICS } = {}) 
 // the way a player sees it. One cell is TILE pixels, row 0 is the top of the world.
 export const TILE = 16;
 export const TILE_LEGEND = '# 地面或平台 · 空格=空气 · ~ 水（掉下去会死） · c 金币 · k 钥匙 · s 机关 · D 关着的门 · d 开着的门 · G 终点 · @ 你自己';
-export function tileMap(level, a, p = { coins: [], key: false, switchOn: false }, { water = 430, rows = 30 } = {}) {
+export function tileMap(level, a, p = { coins: [], key: false, switchOn: false }, { water = 430, rows = 30, partner = null } = {}) {
   const cols = Math.ceil(level.width / TILE);
   const grid = Array.from({ length: rows }, () => Array(cols).fill(' '));
   const put = (x, y, ch) => {
@@ -131,9 +152,14 @@ export function tileMap(level, a, p = { coins: [], key: false, switchOn: false }
     for (let col = 0; col < cols; col++) if (grid[row][col] === ' ') grid[row][col] = '~';
   level.coins.forEach((coin, i) => { if (!(p.coins || []).includes(i)) put(coin.x, coin.y, 'c'); });
   if (!p.key) put(level.key.x, level.key.y, 'k');
-  put(level.switch.x, level.switch.y, 's');
+  if (level.coop) level.coop.plates.forEach(plate => put(plate.x, plate.y, 'P'));
+  else put(level.switch.x, level.switch.y, 's');
   fill(level.door.x, level.door.y, 16, level.door.h, p.switchOn ? 'd' : 'D');
   put(level.goal.x, level.goal.y - TILE, 'G');
+  if (partner && !partner.dead) put(partner.x, partner.y - TILE, 'H');
   if (a && !a.dead) put(a.x, a.y - TILE, '@');
-  return { legend: TILE_LEGEND, tile: TILE, rows: grid.map(row => row.join('').replace(/\s+$/, '')) };
+  const legend = level.coop
+    ? '# 地面或平台 · 空格=空气 · ~ 水（掉下去会死） · c 金币 · k 钥匙 · P 压力板 · D 关着的门 · d 开着的门 · G 终点 · @ 你自己 · H 主人'
+    : TILE_LEGEND;
+  return { legend, tile: TILE, rows: grid.map(row => row.join('').replace(/\s+$/, '')) };
 }

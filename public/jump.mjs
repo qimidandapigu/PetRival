@@ -1,14 +1,22 @@
-import { actor, step, progress as freshProgress, replayActions, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
+import { actor, step, progress as freshProgress, worldProgress, latchPlates, replayActions, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
 import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scoreLessonPrediction, sameSpotStreak, stallStreak, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
 import { STAGES, stageLevel, stageInfo, nextStage, unlockAfter, stagePickerState } from './jump-stages.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
 let stageId = 1, clearedStages = [], stageKey = 'petrival.jump.stage.v1';
 let level = stageLevel(stageId), human = actor(level.spawn), pet = actor(level.spawn), progress = freshProgress(), humanProgress = freshProgress();
+// Co-op levels (level.coop): coins/key/door-latch live in one shared object; each side's own
+// progress only carries its `won` flag plus a synced display copy of the shared state.
+let coopShared = level.coop ? worldProgress() : null;
+function resetCoop() { coopShared = level.coop ? worldProgress() : null; }
+function syncShared() {
+  if (!coopShared) return;
+  for (const side of [progress, humanProgress]) { side.coins = [...coopShared.coins]; side.key = coopShared.key; side.switchOn = coopShared.switchOn; }
+}
 let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', storageKey = 'petrival.jump.v2.guest';
 let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
 let queue = [], calls = 0, falls = 0, humanFalls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
-let status = '第 1 关只要一直往右走。点开始让小精灵自己试，或你亲自走一遍给它看。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false;
+let status = '第 1 关只要一直往右走。点开始让小精灵自己试，或你亲自走一遍给它看。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false, petWonLogged = false;
 let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = true;
 // The pet's own experience, and the rules it has summarised out of that experience and your
 // demonstrations. Both are memory: they are stored and re-sent, the weights never change.
@@ -39,13 +47,29 @@ function loadStage(stored) {
 // once a reflection has consumed a recording, the rules speak for it and the raw clip would
 // just be tokens. Reflections still see all samples.
 function freshSamples() { return samples.filter(s => !s.distilled).slice(-4); }
+// Causal events of the CURRENT attempt: pickups, the switch, the door — the data a reflection
+// needs to learn "key → step on switch → door opens" instead of misreading a closed door as a
+// jump problem. Reset when a plan is adopted; attached to the attempt when it ends.
+let attemptEvents = [];
+function noteAttemptEvents(before) {
+  const at = o => `@x=${Math.round(o.x)}`;
+  if (!before.key && progress.key) attemptEvents.push(`取得钥匙${at(level.key)}`);
+  if (!before.switchOn && progress.switchOn) attemptEvents.push(`踩下机关${at(level.switch)}（门开了）`);
+  for (const i of progress.coins) if (!before.coins.includes(i)) attemptEvents.push(`捡到金币${at(level.coins[i])}`);
+  if (!progress.switchOn && !before.nearSwitchAirborne && Math.abs(pet.x - level.switch.x) < 22 && Math.abs(pet.y - 12 - level.switch.y) < 26 && !pet.grounded)
+    attemptEvents.push(`从机关上方飞过但没落地踩到${at(level.switch)}`), before.nearSwitchAirborne = true;
+  const input = queue[0];
+  if (!progress.switchOn && !before.doorBlocked && input?.move && Math.abs(pet.x - before.x) < 1 && Math.abs(pet.x - level.door.x) < 20)
+    attemptEvents.push(`被关着的门挡住${at(level.door)}（机关未开）`), before.doorBlocked = true;
+}
 function recordAttempt() {
   if (!planActions.length) return;
   const outcome = pet.dead ? 'fell' : progress.won ? 'won' : 'alive';
   attempts = [...attempts, { from: { x: planStart.x, y: planStart.y, vy: planStart.vy, grounded: planStart.grounded },
-    to: { x: pet.x, y: pet.y, vy: pet.vy, grounded: pet.grounded }, outcome, actions: planActions.map(a => ({ ...a })) }].slice(-8);
-  planActions = [];
-  logEvent('attempt', `第 ${attempts.length} 次尝试：x=${Math.round(planStart.x)} → x=${Math.round(pet.x)}（${outcome === 'fell' ? '掉下去了' : outcome === 'won' ? '通关' : '还活着'}），动作 ${describeActions(attempts[attempts.length - 1].actions, false)}`);
+    to: { x: pet.x, y: pet.y, vy: pet.vy, grounded: pet.grounded }, outcome, actions: planActions.map(a => ({ ...a })),
+    ...(attemptEvents.length ? { events: [...attemptEvents] } : {}) }].slice(-8);
+  planActions = []; attemptEvents = [];
+  logEvent('attempt', `第 ${attempts.length} 次尝试：x=${Math.round(planStart.x)} → x=${Math.round(pet.x)}（${outcome === 'fell' ? '掉下去了' : outcome === 'won' ? '通关' : '还活着'}）${attempts[attempts.length - 1].events ? `，事件：${attempts[attempts.length - 1].events.join('；')}` : ''}，动作 ${describeActions(attempts[attempts.length - 1].actions, false)}`);
 }
 // Demonstrations and failed attempts become rules, not just replayable clips.
 async function learnLesson(trigger = '') {
@@ -243,7 +267,7 @@ async function init() {
   try { const view = JSON.parse(localStorage.getItem(viewKey) || 'null');
     if (view) splitView = view.splitView !== false; } catch {}
   $('#split').checked = splitView;
-  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
   ready = true; update();
 }
 // One stage at a time, in order: the ladder starts at "walk right" so a pet that knows
@@ -253,9 +277,9 @@ function goToStage(id, reason = '') {
   if (target !== 1 && !clearedStages.includes(target) && !clearedStages.includes(target - 1))
     return status = `第 ${target} 关还没解锁：先过第 ${target - 1} 关。`;
   cancel(); idle(); recording = null; stageId = target; level = stageLevel(target);
-  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
   lab.memory = null; lab.memoryLog = [];
-  calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; lastGoal = '';
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; petWonLogged = false; lastGoal = '';
   const info = stageInfo(target);
   $('#level-source').textContent = `课程第 ${target} 关 · 物理验证通过`;
   status = `第 ${target} 关「${info.name}」${reason}：${info.skill}提示：${info.hint}`;
@@ -276,8 +300,8 @@ function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; q
 function restartRound(reason = '') {
   if (recording) finishDemo();
   cancel(); idle(); recording = null;
-  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
-  calls = falls = humanFalls = 0; feedback = ''; paused = false; petRespawnAt = 0; humanWon = false; roundIndex++; roundDemos = 0;
+  human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; petRespawnAt = 0; humanWon = false; petWonLogged = false; roundIndex++; roundDemos = 0;
   autoReflects = 0; lessonPredictionPending = null;
   $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
   status = `第 ${roundIndex} 轮${reason}：位置和目标重置，${mode === 'lab' ? '机制手册、实验记录和世界模型都保留' : '你的示范笔记保留'}。可以「回去示范」。`;
@@ -286,8 +310,8 @@ function restartRound(reason = '') {
   update(); canvas.focus();
 }
 function resetLevel(next = level) {
-  cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
-  calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false;
+  cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
+  calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; petWonLogged = false;
   autoReflects = 0; lessonPredictionPending = null;
   $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
@@ -297,6 +321,7 @@ function adoptPlan(result, learning) {
   planStart = { ...pet };
   queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions, 360)).map(a => ({ ...a }));
   planActions = learning ? [] : queue.map(a => ({ ...a }));
+  attemptEvents = [];
   if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
   const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
@@ -323,7 +348,7 @@ async function decide() {
   try {
     const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
       learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
-        : { level, actor: pet, progress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
+        : { level, actor: pet, progress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value, partner: partnerView() },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
@@ -337,9 +362,12 @@ async function decide() {
 function simulateQueueEnd() {
   if (!queue.length) return null;
   const sim = replayActions(level, actor({ x: pet.x, y: pet.y, vy: pet.vy, grounded: pet.grounded, held: pet.held }),
-    { coins: [...progress.coins], key: progress.key, switchOn: progress.switchOn, won: progress.won }, queue.map(a => ({ ...a })));
+    { coins: [...progress.coins], key: progress.key, switchOn: progress.switchOn, won: progress.won }, queue.map(a => ({ ...a })),
+    'pet', physics(), coopShared, human);
   return { pet: sim.actor, progress: sim.progress };
 }
+// What the model needs to know about the other player in a co-op level.
+function partnerView() { return coopShared ? { x: Math.round(human.x), y: Math.round(human.y), dead: human.dead, won: humanProgress.won } : undefined; }
 async function prefetch() {
   if (mode === 'lab' || !enabled || pending || paused || recording || progress.won || pet.dead || prefetched || !queue.length) return;
   if (calls >= 16) return;
@@ -350,11 +378,13 @@ async function prefetch() {
   // next plan can be computed from THERE and adopted the moment the pet comes back.
   const afterDeath = sim.pet.dead;
   const fromActor = afterDeath ? actor(level.spawn) : sim.pet;
-  const fromProgress = afterDeath ? freshProgress() : sim.progress;
+  const fromProgress = afterDeath
+    ? (coopShared ? { coins: [...coopShared.coins], key: coopShared.key, switchOn: coopShared.switchOn, won: false } : freshProgress())
+    : sim.progress;
   pending = true; calls++; const current = epoch; abort = new AbortController();
   try {
     const result = await api('/api/jump/decision',
-      { level, actor: fromActor, progress: fromProgress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
+      { level, actor: fromActor, progress: fromProgress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value, partner: partnerView() },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作');
@@ -438,7 +468,8 @@ function finishModelPlan() {
   saveLab(); update();
 }
 function advance() {
-  if (paused || !ready || progress.won) return; tick++;
+  // Co-op: the pet waiting at the goal must not freeze the world — the human still has to arrive.
+  if (paused || !ready || (progress.won && (!coopShared || humanProgress.won))) return; tick++;
   const input = { move: Number(keys.right) - Number(keys.left), jump: keys.jump };
   if (recording && (recording.frames || input.move || input.jump)) {
     const last = recording.actions.at(-1);
@@ -447,7 +478,8 @@ function advance() {
     else finishDemo();
     if (recording) recording.frames++;
   }
-  step(human, input, level, humanProgress, 'human', physics());
+  step(human, input, level, humanProgress, 'human', physics(), coopShared);
+  if (coopShared) { const wasOn = coopShared.switchOn; latchPlates(level, coopShared, human, pet); if (!wasOn && coopShared.switchOn) logEvent('win', '两块压力板被同时踩住：门永久打开了，双方各自走到终点就算一起通关'); syncShared(); }
   if (recording && (recording.frames >= 240 || human.dead)) finishDemo();
   // Whoever falls respawns and restarts their own attempt; the other side is untouched.
   if (human.dead) {
@@ -455,16 +487,26 @@ function advance() {
     logEvent('fall', `你摔了（第 ${humanFalls} 次），已复活回到起点、自己的金币和机关重置`);
   }
   if (humanProgress.won && !humanWon) {
-    humanWon = true; humanWins++;
-    logEvent('win', `你自己通关了第 ${stageId} 关：收齐 ${level.coins.length} 枚金币、取钥匙、开机关、到终点`);
-    markCleared(stageId, '你');
-    const next = nextStage(stageId);
-    status = next ? `你自己通关了第 ${stageId} 关。第 ${next} 关「${stageInfo(next).name}」已解锁，也可以让小精灵再来一次这一关。`
-      : '你自己通关了最后一关。小精灵那边还在继续。';
+    humanWon = true;
+    if (coopShared && !progress.won) {
+      logEvent('win', '你到达了终点：等小精灵也到终点，才算一起通关');
+      status = '你到了终点。小精灵那边还在路上——它到了才算一起通关。';
+    } else {
+      humanWins++;
+      logEvent('win', coopShared ? `你们一起通关了第 ${stageId} 关：配合踩板、收齐金币、取钥匙、双双到达终点` : `你自己通关了第 ${stageId} 关：收齐 ${level.coins.length} 枚金币、取钥匙、开机关、到终点`);
+      markCleared(stageId, '你');
+      const next = nextStage(stageId);
+      status = next ? `你${coopShared ? '们一起' : ''}通关了第 ${stageId} 关。第 ${next} 关「${stageInfo(next).name}」已解锁，也可以让小精灵再来一次这一关。`
+        : `你${coopShared ? '们一起' : ''}通关了最后一关。`;
+    }
   }
   if (enabled && !recording) {
     if (queue.length) {
-      const action = queue[0]; step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics());
+      const action = queue[0];
+      const before = { x: pet.x, y: pet.y, key: progress.key, switchOn: progress.switchOn, coins: [...progress.coins] };
+      step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics(), coopShared);
+      if (coopShared) { const wasOn = coopShared.switchOn; latchPlates(level, coopShared, human, pet); if (!wasOn && coopShared.switchOn) { attemptEvents.push('和主人同时踩住两块压力板，门开了'); logEvent('win', '两块压力板被同时踩住：门永久打开了，双方各自走到终点就算一起通关'); } syncShared(); }
+      if (mode !== 'lab') noteAttemptEvents(before);
       if (--action.frames <= 0) queue.shift();
       if (pet.dead) { falls++; queue = []; if (!prefetched?.afterDeath) prefetched = null; petRespawnAt = tick + 45; logEvent('fall', `小精灵跌落（第 ${falls} 次），45 帧后复活重开`); status = '小精灵摔了，正在复活重开；它自己的进度会重置，学过的东西保留。'; }
       if (!queue.length) {
@@ -478,22 +520,31 @@ function advance() {
       prefetch();
     } else decide();
   }
-  if (progress.won) {
-    enabled = false; idle();
-    if (!clearedStages.includes(stageId)) {
-      petWins++; markCleared(stageId, petName);
-      logEvent('win', `${petName}自己通关了第 ${stageId} 关「${stageInfo(stageId).name}」（本轮模型调用 ${calls} 次、跌落 ${falls} 次）`);
-      // Consolidate the win while it is fresh: the successful run becomes rules, not just a log line.
-      if (mode !== 'lab' && autoReflects < 3 && attempts.length) {
-        autoReflects++; recordAttempt();
-        logEvent('learn', '它自己通关了，自动把这次成功固化成规则');
-        learnLesson('它自己通关了这一关：把这次成功里的关键做法固化成规则，供以后的关卡参考');
+  if (progress.won && !petWonLogged) {
+    petWonLogged = true;
+    if (coopShared && !humanProgress.won) {
+      enabled = false; idle();
+      logEvent('win', `${petName}到达了终点：在等你过去，双方都到才算一起通关`);
+      status = `${petName}到终点了，在等你。你走到终点就算一起通关。`;
+    } else {
+      enabled = false; idle();
+      if (!clearedStages.includes(stageId)) {
+        petWins++; markCleared(stageId, petName);
+        logEvent('win', coopShared
+          ? `你们一起通关了第 ${stageId} 关「${stageInfo(stageId).name}」（本轮模型调用 ${calls} 次、跌落 ${falls} 次）`
+          : `${petName}自己通关了第 ${stageId} 关「${stageInfo(stageId).name}」（本轮模型调用 ${calls} 次、跌落 ${falls} 次）`);
+        // Consolidate the win while it is fresh: the successful run becomes rules, not just a log line.
+        if (mode !== 'lab' && autoReflects < 3 && attempts.length) {
+          autoReflects++; recordAttempt();
+          logEvent('learn', '它自己通关了，自动把这次成功固化成规则');
+          learnLesson('它自己通关了这一关：把这次成功里的关键做法固化成规则，供以后的关卡参考');
+        }
       }
+      const next = nextStage(stageId);
+      status = next ? `${petName}${coopShared ? '和你们一起' : '自己'}收齐金币、取钥匙、开门、到达终点。第 ${next} 关「${stageInfo(next).name}」已解锁。`
+        : `${petName}通关了最后一关「${stageInfo(stageId).name}」。`;
+      $('#next-level').textContent = next ? `进入第 ${next} 关：${stageInfo(next).name} →` : '再练一次 →';
     }
-    const next = nextStage(stageId);
-    status = next ? `${petName}自己收齐金币、取钥匙、开门、到达终点。第 ${next} 关「${stageInfo(next).name}」已解锁。`
-      : `${petName}通关了最后一关「${stageInfo(stageId).name}」。`;
-    $('#next-level').textContent = next ? `进入第 ${next} 关：${stageInfo(next).name} →` : '再练一次 →';
   }
   // A fall is survivable for both sides: the pet comes back on its own and keeps trying.
   if (pet.dead && petRespawnAt && tick >= petRespawnAt) {
@@ -525,7 +576,7 @@ function nextWorld({ first = false } = {}) {
     answer: null, pending: null, lastScore: null, accuracy: { hits: 0, total: 0 }, stats: stats.slice(-8), calls: 0, adjusted: [],
     worldModel: null, plan: null, modelRuns: [], log: lab.log || [] };
   mode = 'lab'; cancel(); recording = null; idle();
-  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress();
+  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); resetCoop();
   calls = falls = 0; feedback = ''; paused = false; $('#soundless-pause').textContent = '暂停';
   $('#level-source').textContent = `空白实验室 · ${labWorldName()} · 机制保密`;
   logEvent('world', `换到${labWorldName()}（种子 ${seed}）：通道含义和物理参数重新隐藏${carried.length ? `；上一个世界确认过的 ${carried.length} 条结论降级为待复核` : '；它对这个世界一无所知'}`);
@@ -802,8 +853,16 @@ function drawPane(top, cam, who) {
   for (const p of level.platforms) { rect(p.x - cam, p.y, p.w, p.y === 400 ? 70 : 20, '#bbad82'); rect(p.x - cam, p.y, p.w, 8, '#63915c'); }
   level.coins.forEach((coin, i) => { if (!prog.coins.includes(i)) { rect(coin.x - cam - 6, coin.y - 8, 12, 16, '#f4cf62'); rect(coin.x - cam - 1, coin.y - 5, 3, 10, '#bd853b'); } });
   if (!prog.key) { label('⚿', level.key.x - cam, level.key.y + 5, '#ad752e', 26); label('钥匙', level.key.x - cam, level.key.y - 25, '#6c7446', 12); }
-  const sx = level.switch.x - cam; rect(sx - 14, level.switch.y + 3, 28, 9, prog.switchOn ? '#71ad63' : '#d7a152');
-  label(prog.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
+  if (coopShared) {
+    level.coop.plates.forEach((plate, i) => {
+      const occupied = [human, pet].some(a => !a.dead && Math.abs(a.x - plate.x) < 22 && Math.abs(a.y - 12 - plate.y) < 26);
+      rect(plate.x - cam - 14, plate.y + 3, 28, 9, coopShared.switchOn ? '#71ad63' : occupied ? '#e2c04f' : '#c98989');
+      label(coopShared.switchOn ? '门已开' : `压力板${i + 1}`, plate.x - cam, plate.y - 20, '#4d6845', 12);
+    });
+  } else {
+    const sx = level.switch.x - cam; rect(sx - 14, level.switch.y + 3, 28, 9, prog.switchOn ? '#71ad63' : '#d7a152');
+    label(prog.switchOn ? '已开门' : '带钥匙回来', sx, level.switch.y - 20, '#4d6845', 12);
+  }
   if (!prog.switchOn) { rect(level.door.x - cam - 8, level.door.y, 16, level.door.h, '#8c7966'); label('锁门', level.door.x - cam, level.door.y - 12, '#655444', 12); }
   rect(level.goal.x - cam - 3, level.goal.y - 70, 6, 70, '#557156'); rect(level.goal.x - cam + 3, level.goal.y - 70, 30, 20, '#eccb71');
   label('终点', level.goal.x - cam, level.goal.y - 82);
@@ -851,7 +910,7 @@ for (const button of document.querySelectorAll('[data-key]')) {
 function enterLab() {
   if (!lab.world) return nextWorld({ first: true });
   mode = 'lab'; cancel(); recording = null; idle();
-  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
+  level = lab.world.level; human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
   calls = falls = humanFalls = 0; feedback = ''; paused = false; lab.pending = null; $('#soundless-pause').textContent = '暂停';
   $('#level-source').textContent = `空白实验室 · ${labWorldName()} · 机制保密`;
   logEvent('world', `回到${labWorldName()}：手册 ${summarizeNotebook(lab.notebook).length} 条、实验 ${lab.traces.length} 次、累计模型调用 ${lab.calls} 次`);

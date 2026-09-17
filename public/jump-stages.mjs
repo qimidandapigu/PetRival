@@ -10,6 +10,7 @@ export const STAGES = Object.freeze([
   { id: 4, name: '学会取钥匙开门', skill: '钥匙在高台上，拿到它才能开门。', hint: '先跳上高台取钥匙，门自然就开了。' },
   { id: 5, name: '学会回头开机关', skill: '开关在钥匙左边，拿到钥匙后要往回走。', hint: '取完钥匙回头看，开关在左边。' },
   { id: 6, name: '高台上的钥匙', skill: '高台取钥匙、回头踩机关、跨溪、收齐金币。', hint: '你已经会全部动作了，这一关只是把它们连起来。' },
+  { id: 7, name: '并肩作战', skill: '配合关：两块压力板要同时踩住门才会开，金币和钥匙共享，你们各自都要走到终点。', hint: '一个人踩不住两块板——你踩一块，让它踩另一块。' },
 ]);
 
 export function validateStageId(value) {
@@ -42,6 +43,13 @@ export function stageLevel(id) {
       platforms: [{ x: 0, y: 400, w: 1000 }, { x: 620, y: 336, w: 120 }], coins: [{ x: 520, y: 388 }, { x: 700, y: 324 }],
       key: { x: 680, y: 324 }, switch: { x: 120, y: 388 }, door: { x: 820, y: 152, h: 248 } });
     default: return validateLevel({ ...starterLevel(), title: `第 6 关 · ${STAGES[5].name}` });
+    // Co-op finale: the door latches open only while BOTH pressure plates are occupied at the
+    // same moment — one actor can never do that alone. Coins and the key are shared, and each
+    // side must reach the goal itself. The floor switch is a decoy anchor for the validator.
+    case 7: return validateLevel({ version: 2, title: '第 7 关 · 并肩作战', width: 1200, spawn: { x: 48, y: 400 }, goal: { x: 1080, y: 400 },
+      platforms: [{ x: 0, y: 400, w: 1200 }, { x: 580, y: 336, w: 80 }],
+      coins: [{ x: 200, y: 388 }, { x: 600, y: 388 }], key: { x: 460, y: 388 }, switch: { x: 1080, y: 388 },
+      door: { x: 820, y: 144, h: 256 }, coop: { plates: [{ x: 300, y: 388 }, { x: 700, y: 388 }] } });
   }
 }
 export function nextStage(id) { const next = validateStageId(id) + 1; return next > STAGES.length ? null : next; }

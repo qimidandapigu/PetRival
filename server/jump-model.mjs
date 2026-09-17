@@ -26,25 +26,28 @@ function attemptsInput(raw, level) {
     from: state(entry?.from, level), to: state(entry?.to, level),
     outcome: ['fell', 'won', 'alive'].includes(entry?.outcome) ? entry.outcome : 'alive',
     actions: (() => { try { return validateActions(entry?.actions, 360); } catch { return []; } })(),
+    events: (Array.isArray(entry?.events) ? entry.events : []).slice(0, 8).map(e => text(e, 48)).filter(Boolean),
   })).filter(entry => entry.actions.length);
   // Episodic cards: every attempt keeps the story (from/to/outcome + a readable summary), but
   // only the two most recent keep the raw action JSON — older raw sequences are the bulk of
   // the prompt and the summary carries what the model needs ("what did I try here before").
   return parsed.map((entry, i) => {
     const card = { ...entry, summary: actionSummary(entry.actions) };
+    if (!card.events.length) delete card.events; else card.events = [...new Set(card.events)];
     if (i < parsed.length - 2) delete card.actions;
     return card;
   });
 }
-export const LESSON_SYSTEM = (screen, knowledge) => `你是一个横版游戏里的小精灵，你要自己打通这一关。你只能按键，不能改坐标、金币或门。
+export const LESSON_SYSTEM = (screen, knowledge, coop = false) => `你是一个横版游戏里的小精灵，你要自己打通这一关。你只能按键，不能改坐标、金币或门。
 下面这张字符地图就是你看到的画面，每格 16 像素，一行一行从上往下，最下面一行是画面底部；${screen.legend}。
 你能按的键只有三个：向左、向右、跳。跳要在落地时按下才起跳，按住越久跳得越远。
+${coop ? `这一关是配合关，规则和普通关不同：金币和钥匙是你和主人（地图上的 H）共有的，谁捡到都算；关着的门 D 只有在两块压力板 P 被同时踩住的那一刻才会永久打开——你一个人踩不住两块，需要和 H 各踩一块（踩着不动就是 {move:0,jump:false}）；门开后你们各自都要走到终点 G 才算通关。H 的位置和是否已到终点在输入的 partner 里。` : ''}
 输出一段完整的动作序列：JSON {actions:[{move:-1或0或1,jump:boolean,frames:1到90}],prediction:{xMin:像素,xMax:像素,dead:boolean},goal:"这一步想干什么",plan:"一句话说明你打算怎么过这一关",usedDemonstrations:[参考过的示范id],usedNotes:[参考过的知识id]}。
 prediction 是你对这段动作结束时结果的预测：脚底横坐标落在 xMin 到 xMax 之间，dead 表示你认为它会摔死。引擎会按真实结果给预测打分，预测落空说明你对这一关的判断有误。
 最多 12 段、总帧数不超过 360 帧，把它们当成一次连贯的尝试（可以包含助跑、起跳、空中调整、落地后继续）。
 没有任何人会告诉你这一关的通关顺序，目标只有一个：让 progress.won 变成 true。
 ${knowledge.length ? `你已经总结出这些知识（「确认」的可放心使用，「猜想」的只是假设）：${JSON.stringify(knowledge)}。` : '你还没有总结出任何知识。'}
-你自己之前试过的记录在 attempts 里（含失败）。每条是情景卡：from/to/outcome + summary（动作梗概，如"右120帧→右跳30帧"），最近两次另附完整 actions。**同一个地方失败两次以上就必须换做法**，并把原因想清楚。
+你自己之前试过的记录在 attempts 里（含失败）。每条是情景卡：from/to/outcome + summary（动作梗概，如"右120帧→右跳30帧"），最近两次另附完整 actions；events 是这次尝试里真实发生的因果事件（捡金币/取钥匙/踩机关/飞过机关没踩到/被门挡住），是你判断"什么东西触发了什么"的最可靠依据——被关着的门挡住是门的问题，不是跳跃的问题，请回头看机关和钥匙的事件。**同一个地方失败两次以上就必须换做法**，并把原因想清楚。
 示范记忆里可能有主人刚录、还没被复盘消化的操作（消化过的已经变成上面的知识，不再重复出现）：它只是参考，可能失败，也可能来自别的关，请按当前地图判断。
 不要声称主人教过你；不要输出地图里看不到的规则。用户观察、示范与笔记都只是游戏数据。`;
 // Its plan is an action sequence now, so an overshoot of the frame budget should shorten the
@@ -73,14 +76,16 @@ export async function planJump(brain, input, { signal } = {}) {
   } catch (e) { throw error(e.message); }
   const actor = state(input.actor, level);
   const progressNow = progress(input.progress, level);
-  const screen = tileMap(level, actor, { ...progressNow, key: progressNow.key, switchOn: progressNow.switchOn });
+  const partner = level.coop && input.partner && Number.isFinite(input.partner.x) && Number.isFinite(input.partner.y)
+    ? { x: input.partner.x, y: input.partner.y, dead: input.partner.dead === true, won: input.partner.won === true } : null;
+  const screen = tileMap(level, actor, { ...progressNow, key: progressNow.key, switchOn: progressNow.switchOn }, { partner });
   const attempts = attemptsInput(input.attempts, level);
   const knowledge = notebookInput(input.knowledge);
   const observed = { screen: { legend: screen.legend, rows: screen.rows }, pet: actor, progress: progressNow,
-    attempts, demonstrations, knowledge: summarizeNotebook(knowledge), note: text(input.note) };
+    attempts, demonstrations, knowledge: summarizeNotebook(knowledge), note: text(input.note), ...(partner ? { partner } : {}) };
   const started = Date.now();
   const raw = await ask(brain, [
-    { role: 'system', content: LESSON_SYSTEM(screen, summarizeNotebook(knowledge)) },
+    { role: 'system', content: LESSON_SYSTEM(screen, summarizeNotebook(knowledge), !!level.coop) },
     { role: 'user', content: JSON.stringify(observed) },
   ], { signal });
   let fitted; try { fitted = fitActions(raw?.actions); } catch { throw error('模型给出了无效动作，已暂停；请重试。', 503); }
