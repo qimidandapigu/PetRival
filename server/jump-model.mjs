@@ -21,7 +21,7 @@ function attemptsInput(raw, level) {
     id: text(entry?.id, 20) || `attempt-${index + 1}`,
     from: state(entry?.from, level), to: state(entry?.to, level),
     outcome: ['fell', 'won', 'alive'].includes(entry?.outcome) ? entry.outcome : 'alive',
-    actions: (() => { try { return validateActions(entry?.actions); } catch { return []; } })(),
+    actions: (() => { try { return validateActions(entry?.actions, 360); } catch { return []; } })(),
   })).filter(entry => entry.actions.length);
 }
 export const LESSON_SYSTEM = (screen, knowledge) => `你是一个横版游戏里的小精灵，你要自己打通这一关。你只能按键，不能改坐标、金币或门。

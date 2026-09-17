@@ -99,6 +99,17 @@ test('triggered reflection runs the engine experiment and asks for a never-tried
   assert.equal(manual.tryActions, undefined, 'manual summarising runs no experiment');
   assert.equal(user.engineExperiment, undefined);
 });
+test('attempts recorded under the 360-frame budget are kept, not silently dropped', async () => {
+  const level = starterLevel(), a = actor(level.spawn);
+  const longRun = [{ move: 1, jump: false, frames: 90 }, { move: 1, jump: false, frames: 90 }, { move: 1, jump: false, frames: 90 }, { move: 1, jump: false, frames: 60 }];
+  let user = {};
+  const brain = fake(async messages => { user = JSON.parse(messages[1].content); return { actions: [{ move: 1, jump: false, frames: 20 }] }; });
+  await planJump(brain, { level, actor: a, progress: progress(),
+    attempts: [{ from: a, to: { ...a, x: 700 }, outcome: 'alive', actions: longRun }] });
+  assert.equal(user.attempts.length, 1, 'a 330-frame attempt stays in the context');
+  assert.equal(user.attempts[0].actions.reduce((n, x) => n + x.frames, 0), 330);
+});
+
 test('automatic reflection tells the model why it is summarising', async () => {
   const level = starterLevel(), a = actor(level.spawn);
   let system = '';

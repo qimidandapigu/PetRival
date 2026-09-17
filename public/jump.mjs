@@ -277,7 +277,7 @@ function resetLevel(next = level) {
 // the queue starts HERE, so planStart and the prediction baseline are taken at adoption time.
 function adoptPlan(result, learning) {
   planStart = { ...pet };
-  queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions)).map(a => ({ ...a }));
+  queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions, 360)).map(a => ({ ...a }));
   planActions = learning ? [] : queue.map(a => ({ ...a }));
   if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
   const injected = learning
