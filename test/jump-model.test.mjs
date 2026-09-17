@@ -41,6 +41,19 @@ test('the lesson model is shown a screen, not a blueprint, and is not told how t
    knowledge:[{id:'n1',claim:'x=400 处会掉下去',state:'猜想',evidence:[]}]});
  assert.equal(learned.attempts,1);
 });
+test('episodic cards: older attempts keep a summary, only the last two keep raw actions',async()=>{
+ const level=starterLevel(),a=actor(level.spawn);let user;
+ const mk=i=>({id:`attempt-${i}`,from:a,to:{...a,x:a.x+40},outcome:'fell',actions:[{move:1,jump:false,frames:20},{move:1,jump:true,frames:30}]});
+ const brain=fake(async messages=>{user=JSON.parse(messages[1].content);return {actions:[{move:1,jump:false,frames:20}]};});
+ await planJump(brain,{level,actor:a,progress:progress(),attempts:[mk(1),mk(2),mk(3),mk(4)]});
+ assert.equal(user.attempts.length,4);
+ assert.equal(user.attempts[0].actions,undefined,'old attempts ship no raw action JSON');
+ assert.equal(user.attempts[1].actions,undefined);
+ assert.equal(user.attempts[0].summary,'右20帧→右跳30帧','the summary still says what was tried');
+ assert.deepEqual(user.attempts[2].actions,[{move:1,jump:false,frames:20},{move:1,jump:true,frames:30}],'recent attempts keep raw actions');
+ assert.deepEqual(user.attempts[3].actions,[{move:1,jump:false,frames:20},{move:1,jump:true,frames:30}]);
+ assert.equal(user.attempts[0].outcome,'fell');
+});
 test('unreachable key is rejected by bounded search; malformed actions cannot teleport',()=>{
  const l=starterLevel();l.key={x:1100,y:80};assert.equal(verifyLevel(l).verified,false);
  assert.throws(()=>validateActions([{move:9,jump:false,frames:1}]));assert.throws(()=>validateActions([{move:1,jump:false,frames:900}]));

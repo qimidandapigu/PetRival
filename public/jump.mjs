@@ -35,6 +35,10 @@ function loadStage(stored) {
 }
 // One line of experience: where it started, what it pressed, where it ended and whether it
 // died. This is what makes "I fell in the same place three times" visible to the model.
+// Decision context only carries demonstrations that have NOT yet been distilled into rules —
+// once a reflection has consumed a recording, the rules speak for it and the raw clip would
+// just be tokens. Reflections still see all samples.
+function freshSamples() { return samples.filter(s => !s.distilled).slice(-4); }
 function recordAttempt() {
   if (!planActions.length) return;
   const outcome = pet.dead ? 'fell' : progress.won ? 'won' : 'alive';
@@ -56,6 +60,16 @@ async function learnLesson(trigger = '') {
   try {
     const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes, trigger, progress }, AbortSignal.timeout(120000));
     lessonNotes = summarizeNotebook(result.knowledge); saveStage();
+    // Distillation: every demonstration the reflection just saw has been turned into rules,
+    // so decision calls stop shipping the raw recording and rely on the rules instead. The
+    // sample itself stays in 示范记忆 for the next reflection and for the UI.
+    for (const s of samples) s.distilled = true; save();
+    // New rules must change what it does next: a death-prefetched plan was computed with the
+    // OLD understanding, so discard it and let the respawned pet decide with the new rules.
+    if (prefetched?.afterDeath && (result.learned > 0 || result.confirmed > 0 || result.adjusted.length)) {
+      prefetched = null;
+      logEvent('learn', '复盘得出了新规则，按旧认识预取的复活段已丢弃，复活后会用新规则重新决策');
+    }
     logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
     for (const note of lessonNotes.slice(-3)) logEvent('learn', `规则【${note.state}】${note.claim}（证据 ${note.evidence.length} 条）`);
     if (Array.isArray(result.experiment)) logEvent('learn', `引擎实验（从上次起跳点向右跳）：${result.experiment.filter(r => !r.error).map(r => `按住 ${r.holdFrames} 帧→${r.dead ? '摔死' : `跳出 ${r.traveled}px`}`).join('；')}`);
@@ -286,7 +300,7 @@ function adoptPlan(result, learning) {
   if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
   const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
-      : { lines: [`示范 ${samples.slice(-4).length} 条`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };
+      : { lines: [`未蒸馏示范 ${freshSamples().length} 条（共 ${samples.length} 条）`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };
     // The log's job here is the decision itself: what it was shown, what it picked, what it
     // expects — not the plumbing around the call.
     logEvent('choice', `第 ${calls} 次选择：看到 ${describeSituation()}${feedback ? ` · 上次「${feedback.slice(0, 24)}…」` : ''} ｜ 记忆：${injected.lines.join(' + ')} ｜ 它选择：${describeActions(queue, learning)} ｜ 目标「${result.goal || (learning ? '试探这个世界' : '继续前进')}」${result.prediction ? ` ｜ 预测：${learning ? describePrediction(result.prediction) : `落点 x∈[${result.prediction.xMin},${result.prediction.xMax}]${result.prediction.dead ? '（它预计会摔）' : ''}`}` : ''} ｜ ${(result.latencyMs / 1000).toFixed(1)} 秒`);
@@ -309,7 +323,7 @@ async function decide() {
   try {
     const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
       learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
-        : { level, actor: pet, progress, demonstrations: samples.slice(-4), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
+        : { level, actor: pet, progress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
@@ -330,16 +344,24 @@ async function prefetch() {
   if (mode === 'lab' || !enabled || pending || paused || recording || progress.won || pet.dead || prefetched || !queue.length) return;
   if (calls >= 16) return;
   const sim = simulateQueueEnd();
-  if (!sim || sim.pet.dead || sim.progress.won) return;
+  if (!sim || sim.progress.won) return;
+  // The engine already knows how this segment ends — including a fall. A fall is no reason
+  // to stop thinking: the respawn state is fully determined (spawn + fresh progress), so the
+  // next plan can be computed from THERE and adopted the moment the pet comes back.
+  const afterDeath = sim.pet.dead;
+  const fromActor = afterDeath ? actor(level.spawn) : sim.pet;
+  const fromProgress = afterDeath ? freshProgress() : sim.progress;
   pending = true; calls++; const current = epoch; abort = new AbortController();
   try {
     const result = await api('/api/jump/decision',
-      { level, actor: sim.pet, progress: sim.progress, demonstrations: samples.slice(-4), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
+      { level, actor: fromActor, progress: fromProgress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作');
-    prefetched = { result };
-    logEvent('plan', `后台已提前推演出下一段（${describeActions(result.actions, false)} · ${(result.latencyMs / 1000).toFixed(1)} 秒），当前段播完即接上`);
+    prefetched = { result, afterDeath };
+    logEvent('plan', afterDeath
+      ? `推演出这段会摔，已提前从复活点算好下一段（${describeActions(result.actions, false)} · ${(result.latencyMs / 1000).toFixed(1)} 秒），复活即接上`
+      : `后台已提前推演出下一段（${describeActions(result.actions, false)} · ${(result.latencyMs / 1000).toFixed(1)} 秒），当前段播完即接上`);
   } catch (e) { if (current === epoch) logEvent('error', `预取失败（不影响当前播放，播完会现场决定）：${e.name === 'TimeoutError' ? '模型等待超时' : e.message}`); }
   finally { if (current === epoch) pending = false; }
 }
@@ -444,13 +466,13 @@ function advance() {
     if (queue.length) {
       const action = queue[0]; step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics());
       if (--action.frames <= 0) queue.shift();
-      if (pet.dead) { falls++; queue = []; prefetched = null; petRespawnAt = tick + 45; logEvent('fall', `小精灵跌落（第 ${falls} 次），45 帧后复活重开`); status = '小精灵摔了，正在复活重开；它自己的进度会重置，学过的东西保留。'; }
+      if (pet.dead) { falls++; queue = []; if (!prefetched?.afterDeath) prefetched = null; petRespawnAt = tick + 45; logEvent('fall', `小精灵跌落（第 ${falls} 次），45 帧后复活重开`); status = '小精灵摔了，正在复活重开；它自己的进度会重置，学过的东西保留。'; }
       if (!queue.length) {
         if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
         if (mode !== 'lab') { scoreLessonPending(); recordAttempt(); maybeAutoReflect(); }
       } else prefetch();
-    } else if (prefetched) {
+    } else if (prefetched && (!prefetched.afterDeath || !pet.dead)) {
       const { result } = prefetched; prefetched = null;
       adoptPlan(result, false);
       prefetch();
@@ -639,9 +661,9 @@ function renderMemory() {
     if (!attempts.length) lines.push('　还没有。点「开始 / 继续模型闯关」让它自己试。');
     attempts.slice(-6).reverse().forEach(entry => lines.push(`　${entry.outcome === 'fell' ? '✗' : entry.outcome === 'won' ? '✓' : '·'} x=${Math.round(entry.from.x)}→${Math.round(entry.to.x)} ${entry.outcome === 'fell' ? '掉下去了' : entry.outcome === 'won' ? '通关' : '还活着'}`));
     lines.push('');
-    lines.push(`【示范记忆】${samples.length} 条（最多 8 条，每次只送最近 4 条）`);
+    lines.push(`【示范记忆】${samples.length} 条（未蒸馏 ${freshSamples().length} 条直接送决策；已蒸馏的由规则代替，只供复盘）`);
     if (!samples.length) lines.push('　还没有：点「回去示范」录一次，它会先自己总结成规则。');
-    samples.slice(-4).forEach((s, i) => lines.push(`　${i + 1}. ${s.level.title} · x=${Math.round(s.from.x)}→${Math.round(s.to.x)} ${s.outcome === 'fell' ? '摔了' : '成功'}`));
+    samples.slice(-4).forEach((s, i) => lines.push(`　${i + 1}. ${s.level.title} · x=${Math.round(s.from.x)}→${Math.round(s.to.x)} ${s.outcome === 'fell' ? '摔了' : '成功'}${s.distilled ? '（已蒸馏成规则）' : ''}`));
   }
   lines.push('');
   lines.push('【本次变化】');
@@ -746,7 +768,7 @@ function update() {
   $('#pet-status').textContent = paused ? '已暂停。' : status;
   $('#attempts').textContent = `模型 ${calls}/16 次 · ${petName}跌落 ${falls} 次 · 你跌落 ${humanFalls} 次`;
   $('#round-info').textContent = `第 ${roundIndex} 轮 · 本轮示范 ${roundDemos} 次`;
-  $('#lesson-count').textContent = `${samples.length} 次示范`; $('#learning-note').textContent = recording ? '正在录制你的真实按键。' : '最近 4 次示范会作为上下文送给模型，未修改模型权重。';
+  $('#lesson-count').textContent = `${samples.length} 次示范`; $('#learning-note').textContent = recording ? '正在录制你的真实按键。' : '未蒸馏的示范直接送决策；被复盘消化过的示范由规则代替，不再重复送。未修改模型权重。';
   $('#lessons').textContent = samples.slice(-4).map((s, i) => `${i + 1}. ${s.level.title} · ${s.outcome === 'fell' ? '跌落反例' : '操作示范'}`).join('　');
   $('#finish-demo').hidden = !recording; $('#finish').hidden = !progress.won; $('#retry-pet').disabled = !ready || pending;
   updateLab();
