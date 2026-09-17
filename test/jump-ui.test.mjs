@@ -14,11 +14,11 @@ async function fixture(level){
  document:{querySelector:node,querySelectorAll:()=>[],createElement:element,addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
  localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},fetch:async(path,opts)=>{
  if(path==='/api/jump/decision'){requests.push(JSON.parse(opts.body));return new Promise(r=>{resolveDecision=data=>r({ok:true,json:async()=>data});});}
- if(path==='/api/jump/lesson/learn')return {ok:true,json:async()=>({method:'model',model:'fixture',knowledge:[{id:'r1',claim:'x=560 前必须起跳',state:'确认',evidence:['a','b','c']}],learned:1,confirmed:1,adjusted:[],note:'',latencyMs:5})};
+ if(path==='/api/jump/lesson/learn')return {ok:true,json:async()=>({method:'model',model:'fixture',knowledge:[{id:'r1',claim:'x=560 前必须起跳',state:'确认',evidence:['a','b','c']},{id:'g1',claim:'按住 60 帧跳约 192px',state:'观察',scope:'通用',evidence:['a']}],learned:1,confirmed:1,adjusted:[],note:'',latencyMs:5})};
  return {ok:true,json:async()=>({mine:{id:'p',name:'小精灵',species:'xiaotangyuan'}})};
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');
- vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,resetLevel,learnLesson,get:()=>({human,pet,progress,samples,pending,queue,enabled,prefetched,falls,attempts})};',context);
+ vm.runInContext(source+'\nthis.fixture={advance,start,teach,finishDemo,resetLevel,learnLesson,get:()=>({human,pet,progress,samples,pending,queue,enabled,prefetched,falls,attempts,generalNotes,lessonNotes})};',context);
  await new Promise(r=>setImmediate(r));return {api:context.fixture,node,saved,requests,key:(type,code)=>events.get(type)({code,target:node('#jump-canvas'),preventDefault(){}}),resolve:data=>resolveDecision(data)};
 }
 const result={method:'model',model:'fixture',latencyMs:10,actions:[{move:1,jump:false,frames:10}],goal:'走向高台',usedDemonstrations:[],demonstrationsProvided:0};
@@ -68,4 +68,14 @@ test('attempt cards record causal events: pickups and the closed door blocking t
  assert.ok(card,'the finished segment was recorded');
  assert.ok(card.events.some(e=>e.includes('捡到金币')),'the coin pickup is in the card: '+JSON.stringify(card.events));
  assert.ok(card.events.some(e=>e.includes('被关着的门挡住')),'the closed-door block is in the card: '+JSON.stringify(card.events));
+});
+
+test('reflections split rules into a cross-stage handbook and per-stage notes',async()=>{
+ const f=await fixture();f.api.teach();f.key('keydown','ArrowRight');for(let i=0;i<20;i++)f.api.advance();f.key('keyup','ArrowRight');f.api.finishDemo();
+ await f.api.learnLesson();await new Promise(r=>setImmediate(r));
+ const g=f.api.get();
+ assert.equal(g.generalNotes.length,1,'the 通用 rule went to the cross-stage handbook');
+ assert.equal(g.generalNotes[0].claim.includes('192px'),true);
+ assert.equal(g.lessonNotes.length,1,'the map-specific rule stayed with the stage');
+ assert.equal(JSON.parse(f.saved.get('petrival.jump.handbook.v1.pet.p'))[0].id,'g1','the handbook persists across stages');
 });

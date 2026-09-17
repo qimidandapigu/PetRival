@@ -21,6 +21,12 @@ let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = tru
 // The pet's own experience, and the rules it has summarised out of that experience and your
 // demonstrations. Both are memory: they are stored and re-sent, the weights never change.
 let attempts = [], lessonNotes = [], planActions = [];
+// Two-tier memory: the handbook holds rules marked 通用 (physics and mechanics that are true
+// in EVERY level — the jump-distance table, how the switch/door chain works) and persists
+// across stages; lessonNotes stay per-stage map facts. Reflections write both books.
+let generalNotes = [], handbookKey = 'petrival.jump.handbook.v1';
+function saveHandbook() { try { localStorage.setItem(handbookKey, JSON.stringify(generalNotes)); } catch {} }
+function allKnowledge() { return [...generalNotes, ...lessonNotes]; }
 // Reflexion loop state (classic lesson mode): the pet predicts where each plan ends, the
 // engine grades it, and repeated falls in the same spot trigger an automatic review.
 let lessonPredictionPending = null, lessonAccuracy = { hits: 0, total: 0 }, autoReflects = 0, reflecting = false;
@@ -28,8 +34,7 @@ let lessonPredictionPending = null, lessonAccuracy = { hits: 0, total: 0 }, auto
 // its exact end state (deterministic physics) and the next segment is requested ahead of
 // time. `prefetched` holds that ready-made next plan.
 let prefetched = null;
-function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins, attempts: attempts.slice(-8), notes: lessonNotes })); } catch {} }
-function loadStage(stored) {
+function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins, attempts: attempts.slice(-8), notes: lessonNotes })); } catch {} }function loadStage(stored) {
   if (!stored) return;
   try {
     stageId = Math.min(STAGES.length, Math.max(1, Math.trunc(Number(stored.stageId)) || 1));
@@ -88,8 +93,12 @@ async function learnLesson(trigger = '') {
   $('#lesson-learn').disabled = true;
   status = trigger ? '它正在复盘刚才的失败…' : '正在把你的示范和它的尝试总结成这一关的规则…'; update();
   try {
-    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes, trigger, progress }, AbortSignal.timeout(120000));
-    lessonNotes = summarizeNotebook(result.knowledge); saveStage();
+    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: allKnowledge(), trigger, progress }, AbortSignal.timeout(120000));
+    // Split the reduced notebook back into the two books by scope: 通用 rules go to the
+    // cross-stage handbook, everything else stays with this stage.
+    const reduced = summarizeNotebook(result.knowledge);
+    generalNotes = reduced.filter(n => n.scope === '通用'); lessonNotes = reduced.filter(n => n.scope !== '通用');
+    saveHandbook(); saveStage();
     // Distillation: every demonstration the reflection just saw has been turned into rules,
     // so decision calls stop shipping the raw recording and rely on the rules instead. The
     // sample itself stays in 示范记忆 for the next reflection and for the UI.
@@ -101,7 +110,7 @@ async function learnLesson(trigger = '') {
       logEvent('learn', '复盘得出了新规则，按旧认识预取的复活段已丢弃，复活后会用新规则重新决策');
     }
     logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
-    for (const note of lessonNotes.slice(-3)) logEvent('learn', `规则【${note.state}】${note.claim}（证据 ${note.evidence.length} 条）`);
+    for (const note of reduced.slice(-3)) logEvent('learn', `规则【${note.state}·${note.scope}】${note.claim}（证据 ${note.evidence.length} 条）`);
     if (Array.isArray(result.experiment)) logEvent('learn', `引擎实验（从上次起跳点向右跳）：${result.experiment.filter(r => !r.error).map(r => `按住 ${r.holdFrames} 帧→${r.dead ? '摔死' : `跳出 ${r.traveled}px`}`).join('；')}`);
     // The reflection must change what it does next, not only what it knows: a proposed
     // never-tried variant becomes the very next plan.
@@ -112,7 +121,7 @@ async function learnLesson(trigger = '') {
         logEvent('plan', `它要试一个从未试过的做法：${describeActions(queue, false)}`);
       } catch { /* an unusable variant just falls back to a fresh decision */ }
     }
-    status = `现在有 ${lessonNotes.length} 条规则（其中确认 ${lessonNotes.filter(n => n.state === '确认').length} 条），它下次决策会参考。`;
+    status = `现在有 ${generalNotes.length} 条通用规则 + ${lessonNotes.length} 条本关规则（其中确认 ${reduced.filter(n => n.state === '确认').length} 条），它下次决策会参考。`;
   } catch (e) { logEvent('error', `总结失败：${e.message}`); status = e.message; }
   finally { reflecting = false; $('#lesson-learn').disabled = false; update(); }
 }
@@ -267,6 +276,8 @@ async function init() {
   } catch { status = '账号服务暂不可用；你仍能练习，模型开始时会提示连接结果。'; }
   labStorageKey = storageKey.replace('jump.v2', 'jump.lab.v1');
   stageKey = storageKey.replace('jump.v2', 'jump.stage.v1');
+  handbookKey = storageKey.replace('jump.v2', 'jump.handbook.v1');
+  try { generalNotes = summarizeNotebook(JSON.parse(localStorage.getItem(handbookKey) || '[]')); } catch { generalNotes = []; }
   try { loadStage(JSON.parse(localStorage.getItem(stageKey) || 'null')); } catch {}
   try { const stored = JSON.parse(localStorage.getItem(storageKey) || '[]'); samples = (Array.isArray(stored) ? stored : []).slice(-8).filter(d => { try { validateLevel(d.level); validateActions(d.actions); return d.from && d.to; } catch { return false; } }); } catch {}
   try { loadLab(JSON.parse(localStorage.getItem(labStorageKey) || 'null')); } catch {}
@@ -354,7 +365,7 @@ async function decide() {
   try {
     const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
       learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
-        : { level, actor: pet, progress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value, partner: partnerView() },
+        : { level, actor: pet, progress, demonstrations: freshSamples(), attempts, knowledge: allKnowledge(), note: $('#teacher-note').value, partner: partnerView() },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
@@ -390,7 +401,7 @@ async function prefetch() {
   pending = true; calls++; const current = epoch; abort = new AbortController();
   try {
     const result = await api('/api/jump/decision',
-      { level, actor: fromActor, progress: fromProgress, demonstrations: freshSamples(), attempts, knowledge: lessonNotes, note: $('#teacher-note').value, partner: partnerView() },
+      { level, actor: fromActor, progress: fromProgress, demonstrations: freshSamples(), attempts, knowledge: allKnowledge(), note: $('#teacher-note').value, partner: partnerView() },
       AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
     if (current !== epoch) return;
     if (result.method !== 'model') throw new Error('接口未返回真实模型动作');
@@ -710,7 +721,8 @@ function renderMemory() {
   const lines = [];
   lines.push('模型权重不会变：每次调用都把下面这些重新塞进提示词。所以"学到"= 这里的内容变了。');
   lines.push('');
-  lines.push(learning ? `【知识库】${lab.notebook.length} 条（每次送全部）` : `【这一关的规则】${lessonNotes.length} 条（确认 ${lessonNotes.filter(n => n.state === '确认').length} 条 · 每次全部送进去）`);
+  lines.push(learning ? `【知识库】${lab.notebook.length} 条（每次送全部）` : `【通用手册】${generalNotes.length} 条（全关卡通用，每次送全部）＋【本关笔记】${lessonNotes.length} 条（确认 ${lessonNotes.filter(n => n.state === '确认').length} 条）`);
+  if (!learning && generalNotes.length) generalNotes.slice(-5).forEach((n, i) => lines.push(`　${i + 1}. 【${n.state}】${n.claim}（证据 ${n.evidence.length}）`));
   const memory = Array.isArray(lab.memory) && lab.memory.length ? lab.memory : snapshotMemory(learning);
   if (!memory.length) lines.push(learning ? '　还是空的：先做实验台或让它归纳。' : '　还是空的：点「让它总结」，把你的示范和它的尝试变成规则。');
   else memory.slice(-10).forEach((entry, i) => lines.push(`　${i + 1}. ${entry.text}`));
