@@ -110,6 +110,15 @@ test('attempts recorded under the 360-frame budget are kept, not silently droppe
   assert.equal(user.attempts[0].actions.reduce((n, x) => n + x.frames, 0), 330);
 });
 
+test('the engine experiment runs under the real progress: an opened door is open in the probe', () => {
+  const level = starterLevel();
+  const doorX = level.door.x, from = { x: doorX - 20, y: level.door.y + level.door.h, vy: 0, grounded: true };
+  const closed = holdExperiment(level, from, { coins: [], key: false, switchOn: false, won: false });
+  const opened = holdExperiment(level, from, { coins: [], key: true, switchOn: true, won: false });
+  const closedMax = Math.max(...closed.map(r => r.traveled)), openedMax = Math.max(...opened.map(r => r.traveled));
+  assert.ok(openedMax > closedMax, `with the door opened the probe must get further (${openedMax} vs ${closedMax})`);
+});
+
 test('automatic reflection tells the model why it is summarising', async () => {
   const level = starterLevel(), a = actor(level.spawn);
   let system = '';

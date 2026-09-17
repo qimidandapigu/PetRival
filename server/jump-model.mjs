@@ -84,9 +84,12 @@ export async function planJump(brain, input, { signal } = {}) {
 // last take-off spot, how far does holding jump for N frames actually carry it? Zero tokens.
 // Each probe jumps and STOPS AT LANDING — walking on after landing would measure the cliff
 // behind the landing spot, not the jump.
-export function holdExperiment(level, from) {
+export function holdExperiment(level, from, prog) {
+  const base = prog && Array.isArray(prog.coins)
+    ? { coins: [...prog.coins], key: prog.key === true, switchOn: prog.switchOn === true, won: false }
+    : freshProgress();
   const probe = (hold, move) => {
-    const a = actor({ ...from }), p = freshProgress();
+    const a = actor({ ...from }), p = { ...base, coins: [...base.coins] };
     let frames = 0;
     while (frames < 240) {
       step(a, { move, jump: frames < hold }, level, p);
@@ -122,9 +125,12 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   // When the reflection was triggered by being stuck, run a real physics experiment from its
   // last take-off spot first, so the model reflects on facts instead of its own miscalibration.
   const lastFall = [...attempts].reverse().find(a => a.outcome === 'fell') || attempts.at(-1);
+  // The experiment must run under the pet's REAL progress (key/switch/door state) — a fresh
+  // progress would measure a closed door the pet has already opened and teach false physics.
+  const experimentProgress = progress(input.progress, level);
   const experiment = trigger && lastFall ? { note: '真实引擎实验：从它上次起跳位置，按住跳跃键不同帧数、全程按住向右的真实结果（最后一行是对照：同样的长跳但不按方向）。这是物理事实，不是猜测——跳跃的水平位移来自空中按住方向键。',
-    from: { x: Math.round(lastFall.from.x), y: Math.round(lastFall.from.y) }, rows: holdExperiment(level, lastFall.from) } : null;
-  const screen = tileMap(level, actor(level.spawn), { coins: [], key: false, switchOn: false });
+    from: { x: Math.round(lastFall.from.x), y: Math.round(lastFall.from.y) }, rows: holdExperiment(level, lastFall.from, experimentProgress) } : null;
+  const screen = tileMap(level, actor(level.spawn), { coins: experimentProgress.coins, key: experimentProgress.key, switchOn: experimentProgress.switchOn });
   const started = Date.now();
   const raw = await ask(brain, [
     { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它上次起跳点向右，按住跳跃 1/10/20/30/45/60 帧分别跳多远、会不会摔。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断——比如从未试过的按键时长组合。重复旧做法没有意义。` : ''}

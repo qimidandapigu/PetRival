@@ -50,7 +50,7 @@ async function learnLesson(trigger = '') {
   $('#lesson-learn').disabled = true;
   status = trigger ? '它正在复盘刚才的失败…' : '正在把你的示范和它的尝试总结成这一关的规则…'; update();
   try {
-    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes, trigger }, AbortSignal.timeout(120000));
+    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes, trigger, progress }, AbortSignal.timeout(120000));
     lessonNotes = summarizeNotebook(result.knowledge); saveStage();
     logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
     for (const note of lessonNotes.slice(-3)) logEvent('learn', `规则【${note.state}】${note.claim}（证据 ${note.evidence.length} 条）`);
