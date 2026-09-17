@@ -206,6 +206,17 @@ export function sameSpotStreak(attempts, radius = 48) {
   }
   return { streak, x: lastX };
 }
+// Being stuck is not only falling: attempts that never push the frontier forward (short hops
+// in place count as stuck too) are the other stuck signal. Wins reset the streak.
+export function stallStreak(attempts, minGain = 16) {
+  let best = -Infinity, streak = 0;
+  for (const a of Array.isArray(attempts) ? attempts : []) {
+    if (a?.outcome === 'won' || !Number.isFinite(a?.to?.x)) { streak = 0; continue; }
+    if (a.to.x > best + minGain) { best = Math.max(best === -Infinity ? a.to.x : best, a.to.x); streak = 0; }
+    else streak++;
+  }
+  return { streak, best: best === -Infinity ? null : best };
+}
 export function scorePriorGuesses(guesses, world) {
   const rows = CHANNELS.map(channel => {
     const guess = (Array.isArray(guesses) ? guesses : []).find(g => g?.channel === channel) || { role: 'unknown', confidence: 0 };

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { starterLevel, actor, progress } from '../public/jump-world.mjs';
-import { lessonPrediction, scoreLessonPrediction, sameSpotStreak } from '../public/jump-lab.mjs';
-import { planJump, learnJumpLesson } from '../server/jump-model.mjs';
+import { stageLevel } from '../public/jump-stages.mjs';
+import { lessonPrediction, scoreLessonPrediction, sameSpotStreak, stallStreak } from '../public/jump-lab.mjs';
+import { planJump, learnJumpLesson, holdExperiment } from '../server/jump-model.mjs';
 
 const fake = fn => ({ mode: 'model', info: () => ({ model: 'fixture-model' }), json: fn });
 
@@ -56,6 +57,48 @@ test('the lesson model must predict the landing, and a bad prediction never brea
   assert.equal(noPrediction.prediction, null, 'an invalid prediction is dropped, the actions still stand');
 });
 
+test('stall streak counts attempts that never push the frontier, wins reset it', () => {
+  const at = (x, outcome = 'alive') => ({ outcome, to: { x } });
+  assert.deepEqual(stallStreak([]), { streak: 0, best: null });
+  assert.equal(stallStreak([at(100), at(200), at(205)]).streak, 1, '5px is not real progress');
+  assert.equal(stallStreak([at(100), at(368), at(368), { outcome: 'fell', to: { x: 380 } }]).streak, 2, 'hopping in place then falling short');
+  assert.equal(stallStreak([at(368), at(368), at(400)]).streak, 0, 'a real gain resets');
+  assert.equal(stallStreak([at(368), at(368), { outcome: 'won', to: { x: 368 } }]).streak, 0, 'winning resets');
+  assert.equal(stallStreak([at(100), at(200)], 16).best, 200);
+});
+
+test('hold experiment measures real jump physics from the take-off spot, zero tokens', () => {
+  const level = stageLevel(1);
+  const rows = holdExperiment(level, { x: level.spawn.x, y: level.spawn.y, vy: 0, grounded: true });
+  assert.equal(rows.length, 7);
+  assert.deepEqual(rows.slice(0, 6).map(r => r.holdFrames), [1, 10, 20, 30, 45, 60]);
+  const tap = rows[0], held = rows.find(r => r.holdFrames === 45 && r.move === 1), still = rows.at(-1);
+  assert.equal(tap.error, undefined);
+  assert.ok(held.traveled > tap.traveled, `holding jump must carry farther than tapping (${held.traveled} vs ${tap.traveled})`);
+  assert.ok(still.traveled < held.traveled / 2, `the no-direction contrast row barely moves (${still.traveled} vs ${held.traveled})`);
+  assert.ok(rows.every(r => r.dead === false), 'stage 1 has solid ground all the way');
+});
+
+test('triggered reflection runs the engine experiment and asks for a never-tried variant', async () => {
+  const level = starterLevel(), a = actor(level.spawn);
+  let system = '', user = {};
+  const brain = fake(async messages => {
+    system = messages[0].content; user = JSON.parse(messages[1].content);
+    return { ops: [], note: '好', tryNext: [{ move: 1, jump: true, frames: 45 }, { move: 1, jump: false, frames: 30 }] };
+  });
+  const result = await learnJumpLesson(brain, { level, trigger: '连续 2 次尝试都没能推进，卡在原地',
+    attempts: [{ from: a, to: { ...a, x: 470 }, outcome: 'fell', actions: [{ move: 1, jump: true, frames: 1 }] }] });
+  assert.ok(system.includes('tryNext'), 'the prompt demands a novel variant');
+  assert.ok(system.includes('真实物理数据'), 'the prompt marks the experiment as ground truth');
+  assert.ok(Array.isArray(user.engineExperiment?.rows), 'the experiment table is in the context');
+  assert.equal(user.engineExperiment.rows.length, 7);
+  assert.deepEqual(result.tryActions, [{ move: 1, jump: true, frames: 45 }, { move: 1, jump: false, frames: 30 }]);
+  assert.equal(result.experiment.length, 7);
+  const manual = await learnJumpLesson(fake(async m => { user = JSON.parse(m[1].content); return { ops: [] }; }),
+    { level, attempts: [{ from: a, to: { ...a, x: 60 }, outcome: 'alive', actions: [{ move: 1, jump: false, frames: 20 }] }] });
+  assert.equal(manual.tryActions, undefined, 'manual summarising runs no experiment');
+  assert.equal(user.engineExperiment, undefined);
+});
 test('automatic reflection tells the model why it is summarising', async () => {
   const level = starterLevel(), a = actor(level.spawn);
   let system = '';

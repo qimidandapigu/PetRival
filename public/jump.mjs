@@ -1,5 +1,5 @@
 import { actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
-import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scoreLessonPrediction, sameSpotStreak, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
+import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scoreLessonPrediction, sameSpotStreak, stallStreak, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
 import { STAGES, stageLevel, stageInfo, nextStage, unlockAfter, stagePickerState } from './jump-stages.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
@@ -50,19 +50,32 @@ async function learnLesson(trigger = '') {
     lessonNotes = summarizeNotebook(result.knowledge); saveStage();
     logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
     for (const note of lessonNotes.slice(-3)) logEvent('learn', `规则【${note.state}】${note.claim}（证据 ${note.evidence.length} 条）`);
+    if (Array.isArray(result.experiment)) logEvent('learn', `引擎实验（从上次起跳点向右跳）：${result.experiment.filter(r => !r.error).map(r => `按住 ${r.holdFrames} 帧→${r.dead ? '摔死' : `跳出 ${r.traveled}px`}`).join('；')}`);
+    // The reflection must change what it does next, not only what it knows: a proposed
+    // never-tried variant becomes the very next plan.
+    if (trigger && Array.isArray(result.tryActions) && result.tryActions.length && enabled && !pet.dead && !progress.won) {
+      try {
+        queue = validateActions(result.tryActions).map(a => ({ ...a }));
+        planActions = queue.map(a => ({ ...a })); lessonPredictionPending = null;
+        logEvent('plan', `它要试一个从未试过的做法：${describeActions(queue, false)}`);
+      } catch { /* an unusable variant just falls back to a fresh decision */ }
+    }
     status = `现在有 ${lessonNotes.length} 条规则（其中确认 ${lessonNotes.filter(n => n.state === '确认').length} 条），它下次决策会参考。`;
   } catch (e) { logEvent('error', `总结失败：${e.message}`); status = e.message; }
   finally { $('#lesson-learn').disabled = false; update(); }
 }
-// Reflexion: nobody clicks anything. Two falls in the same spot, or a prediction that kept
-// missing, make it stop and turn its own failures into rules before trying again.
+// Reflexion: nobody clicks anything. Two falls in the same spot — or two attempts that fail
+// to push the frontier forward at all — make it stop and turn its failures into rules.
 function maybeAutoReflect() {
   if (mode === 'lab' || pending || autoReflects >= 3) return;
-  const { streak, x } = sameSpotStreak(attempts);
-  if (streak < 2) return;
+  const { streak, x } = sameSpotStreak(attempts), stall = stallStreak(attempts);
+  if (streak < 2 && stall.streak < 2) return;
   autoReflects++;
-  logEvent('learn', `同一区域（x≈${Math.round(x)}）连续跌落 ${streak} 次，自动让它复盘`);
-  learnLesson(`在 x≈${Math.round(x)} 附近连续摔了 ${streak} 次，同一做法反复失败`);
+  const reason = streak >= 2
+    ? `在 x≈${Math.round(x)} 附近连续摔了 ${streak} 次，同一做法反复失败`
+    : `连续 ${stall.streak} 次尝试都没能把最远距离推进过 x≈${Math.round(stall.best ?? 0)}，一直卡在原地`;
+  logEvent('learn', streak >= 2 ? `同一区域（x≈${Math.round(x)}）连续跌落 ${streak} 次，自动让它复盘` : `连续 ${stall.streak} 次尝试没有实质进展（卡在 x≈${Math.round(stall.best ?? 0)}），自动让它复盘`);
+  learnLesson(reason);
 }
 function scoreLessonPending() {
   const pending0 = lessonPredictionPending;
@@ -88,8 +101,24 @@ const viewKey = 'petrival.jump.split.v1';
 function saveView() { try { localStorage.setItem(viewKey, JSON.stringify({ splitView })); } catch {} }
 // The log is the only place the player can see what actually happened, so every step writes
 // a line here: free engine work, paid model calls, what changed, and what it cost.
+// Every event also ships to the local server (data/client-log.jsonl) so a session can be
+// analysed afterwards — the on-screen log is for playing, the file is for debugging.
+let logOutbox = [], logTimer = 0;
+function flushLogs() {
+  if (typeof clearTimeout === 'function') clearTimeout(logTimer);
+  logTimer = 0;
+  const entries = logOutbox.splice(0, 20);
+  if (!entries.length) return;
+  api('/api/log/client', { page: 'jump', entries }).catch(() => { logOutbox.unshift(...entries.slice(-10)); });
+}
+function shipLog(kind, text) {
+  logOutbox.push({ at: Date.now(), kind, text: String(text).slice(0, 500) });
+  if (logOutbox.length >= 10 || ['fall', 'win', 'learn', 'error'].includes(kind) || typeof setTimeout !== 'function') flushLogs();
+  else if (!logTimer) logTimer = setTimeout(flushLogs, 3000);
+}
 function logEvent(kind, text) {
   lab.log = [...(lab.log || []), logLine(kind, text)].slice(-MAX_LOG);
+  shipLog(kind, text);
   // Persist on the event itself: a fall, a demonstration or a decision must survive a
   // reload even when nothing else in the lab changed.
   saveLab();

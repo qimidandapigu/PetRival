@@ -1,4 +1,4 @@
-import { validateLevel, validateActions, starterLevel, verifyLevel, PHYSICS, tileMap, actor } from '../public/jump-world.mjs';
+import { validateLevel, validateActions, starterLevel, verifyLevel, PHYSICS, tileMap, actor, progress as freshProgress, step } from '../public/jump-world.mjs';
 import { CHANNELS, ROLES, TRACE_ORIGINS, validateChannelActions, validatePrediction, reduceNotebook, summarizeNotebook, lessonPrediction } from '../public/jump-lab.mjs';
 
 // Shared with server/jump-world-api.mjs, which owns the code-sandbox lane.
@@ -80,6 +80,29 @@ export async function planJump(brain, input, { signal } = {}) {
     usedNotes: (Array.isArray(raw.usedNotes) ? raw.usedNotes : []).map(String).filter(id => knowledge.some(n => n.id === id)),
     demonstrationsProvided: demonstrations.length, latencyMs: Date.now() - started };
 }
+// Reflection is grounded in real physics, not just in what the pet happened to try: from its
+// last take-off spot, how far does holding jump for N frames actually carry it? Zero tokens.
+// Each probe jumps and STOPS AT LANDING — walking on after landing would measure the cliff
+// behind the landing spot, not the jump.
+export function holdExperiment(level, from) {
+  const probe = (hold, move) => {
+    const a = actor({ ...from }), p = freshProgress();
+    let frames = 0;
+    while (frames < 240) {
+      step(a, { move, jump: frames < hold }, level, p);
+      frames++;
+      if (a.dead) break;
+      if (frames >= hold && a.grounded) break;
+    }
+    return { holdFrames: hold, move, landingX: Math.round(a.x), traveled: Math.round(a.x - from.x), dead: a.dead === true, frames };
+  };
+  const rows = [1, 10, 20, 30, 45, 60].map(hold => probe(hold, 1));
+  // The contrast row is the lesson: the same long hold with no direction key barely moves —
+  // horizontal travel comes from holding the direction DURING the flight, not after landing.
+  rows.push({ ...probe(45, 0), note: '对照：同样按住跳 45 帧但不按方向键' });
+  return rows;
+}
+
 // Turning experience into knowledge: the demonstrations and the pet's own failed attempts
 // are summarised into rules, and the server still counts the evidence behind each one.
 export async function learnJumpLesson(brain, input, { signal } = {}) {
@@ -96,24 +119,32 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   } catch (e) { throw error(e.message); }
   if (!attempts.length && !demonstrations.length) throw error('还没有可以总结的尝试或示范');
   const trigger = text(input.trigger, 120);
+  // When the reflection was triggered by being stuck, run a real physics experiment from its
+  // last take-off spot first, so the model reflects on facts instead of its own miscalibration.
+  const lastFall = [...attempts].reverse().find(a => a.outcome === 'fell') || attempts.at(-1);
+  const experiment = trigger && lastFall ? { note: '真实引擎实验：从它上次起跳位置，按住跳跃键不同帧数、全程按住向右的真实结果（最后一行是对照：同样的长跳但不按方向）。这是物理事实，不是猜测——跳跃的水平位移来自空中按住方向键。',
+    from: { x: Math.round(lastFall.from.x), y: Math.round(lastFall.from.y) }, rows: holdExperiment(level, lastFall.from) } : null;
   const screen = tileMap(level, actor(level.spawn), { coins: [], key: false, switchOn: false });
   const started = Date.now();
   const raw = await ask(brain, [
-    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}
+    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它上次起跳点向右，按住跳跃 1/10/20/30/45/60 帧分别跳多远、会不会摔。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断——比如从未试过的按键时长组合。重复旧做法没有意义。` : ''}
 - 只写地图和记录里能直接支持的东西：多远要起跳、按多久能跳多远、哪里掉下去过、金币/钥匙/门/机关各自是什么反应。
 - 每条给出 evidence：**必须**填列表里真实出现的尝试 id（attempt-1、attempt-2…）或示范 id；填了才会被系统按证据计数升级，不填的只会停在「猜想」。
 - 如果已有的知识被新的记录推翻，就用同一个 id 输出 state 为「已推翻」。
 - 不要写通用游戏常识，也不要写这一关看不出来的规则。
-输出 JSON {ops:[{id:"短id",claim:"一条规则",state:"猜想|观察|已推翻",scope:"这一关",evidence:["id"],confidence:0.5}],note:"一句话"}，最多 6 条。` },
+输出 JSON {ops:[{id:"短id",claim:"一条规则",state:"猜想|观察|已推翻",scope:"这一关",evidence:["id"],confidence:0.5}],note:"一句话"${experiment ? ',tryNext:[{move:-1或0或1,jump:boolean,frames:1到90}]' : ''}}，最多 6 条。` },
     { role: 'user', content: JSON.stringify({ screen: { legend: screen.legend, rows: screen.rows }, attempts, demonstrations,
-      knowledge: summarizeNotebook(knowledge) }) },
+      knowledge: summarizeNotebook(knowledge), ...(experiment ? { engineExperiment: experiment } : {}) }) },
   ], { signal });
   // Every attempt carries an id so the model can cite it: without citable ids nothing can
   // ever reach 确认 and the knowledge stays permanently unproven.
   const evidenceIds = [...attempts.map(a => a.id), ...demonstrations.map(d => d.id)];
   const reduced = reduceNotebook(knowledge, raw?.ops, evidenceIds);
+  let tryActions = null;
+  if (experiment) { try { tryActions = fitActions(raw?.tryNext, 120).actions.slice(0, 6); } catch { tryActions = null; } }
   return { method: 'model', model: brain.info().model, knowledge: reduced.notebook, adjusted: reduced.adjusted,
     confirmed: reduced.confirmed, learned: Math.max(0, reduced.notebook.length - knowledge.length), note: text(raw?.note, 160),
+    ...(experiment ? { experiment: experiment.rows, tryActions } : {}),
     attempts: attempts.length, demonstrations: demonstrations.length, latencyMs: Date.now() - started };
 }
 

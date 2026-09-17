@@ -37,6 +37,7 @@ async function fixture(){
  document:{querySelector:node,querySelectorAll:()=>[],createElement:dom,addEventListener:(t,h)=>events.set(t,h)},window:{addEventListener(){}},requestAnimationFrame(){},
  localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},fetch:(path,opts)=>{
    if(path==='/api/session'||path==='/api/state')return Promise.resolve({ok:true,json:async()=>({mine:{id:'p',name:'小精灵',species:'xiaotangyuan'}})});
+   if(path==='/api/log/client')return Promise.resolve({ok:true,json:async()=>({ok:true,stored:0})});
    return new Promise(resolve=>{const queue=waiting.get(path)||[];queue.push(resolve);waiting.set(path,queue);queue.body=JSON.parse(opts.body);});
  }});
  const source=readFileSync(new URL('../public/jump.mjs',import.meta.url),'utf8').replace(/^import .*$/gm,'');

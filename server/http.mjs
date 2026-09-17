@@ -1,7 +1,7 @@
 import { planJump, planJumpLab, generateJump, probeJumpPrior, induceJumpMechanics, learnJumpLesson } from './jump-model.mjs';
 import { writeJumpWorldModel } from './jump-world-api.mjs';
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, appendFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.mjs';
@@ -124,6 +124,20 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
       if (!owner) throw new ApiError(401, '请先建立访客身份');
       if (path === '/api/state' && req.method === 'GET') return json(200, arena.view(owner));
       const input = req.method === 'POST' ? await body(req) : {};
+      // Client-side play logs (decisions, predictions, reflections) land in one local JSONL
+      // file so a session can be analysed after the fact instead of reading the screen.
+      if (path === '/api/log/client' && req.method === 'POST') {
+        rate(`clientlog:${owner}`, 60);
+        const page = typeof input.page === 'string' ? input.page.slice(0, 40) : 'unknown';
+        const entries = (Array.isArray(input.entries) ? input.entries : []).slice(-30)
+          .map(e => ({ at: Math.round(Number(e?.at)) || now(), kind: String(e?.kind || '').slice(0, 20), text: String(e?.text || '').slice(0, 500) }))
+          .filter(e => e.kind && e.text);
+        if (entries.length) {
+          await mkdir(dataDir, { recursive: true });
+          await appendFile(resolve(dataDir, 'client-log.jsonl'), entries.map(e => JSON.stringify({ ...e, owner, page })).join('\n') + '\n');
+        }
+        return json(200, { ok: true, stored: entries.length });
+      }
       if (JUMP_ROUTES[path] && req.method === 'POST') {
         const route = JUMP_ROUTES[path], key = `jump:${owner}:${route.lane}`;
         rate(key, route.perMinute);
