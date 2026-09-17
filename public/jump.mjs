@@ -1,4 +1,4 @@
-import { actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
+import { actor, step, progress as freshProgress, replayActions, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
 import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scoreLessonPrediction, sameSpotStreak, stallStreak, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
 import { STAGES, stageLevel, stageInfo, nextStage, unlockAfter, stagePickerState } from './jump-stages.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
@@ -16,6 +16,10 @@ let attempts = [], lessonNotes = [], planActions = [];
 // Reflexion loop state (classic lesson mode): the pet predicts where each plan ends, the
 // engine grades it, and repeated falls in the same spot trigger an automatic review.
 let lessonPredictionPending = null, lessonAccuracy = { hits: 0, total: 0 }, autoReflects = 0;
+// Playback never waits for thinking: while the current segment plays, the engine simulates
+// its exact end state (deterministic physics) and the next segment is requested ahead of
+// time. `prefetched` holds that ready-made next plan.
+let prefetched = null;
 function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins, attempts: attempts.slice(-8), notes: lessonNotes })); } catch {} }
 function loadStage(stored) {
   if (!stored) return;
@@ -247,7 +251,7 @@ function markCleared(id, who) {
   logEvent('win', `${who}通关第 ${id} 关「${stageInfo(id).name}」${next ? `，解锁第 ${next} 关「${stageInfo(next).name}」` : '，六关全部通过'}`);
   update();
 }
-function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; }
+function cancel() { epoch++; abort?.abort(); pending = false; enabled = false; queue = []; prefetched = null; }
 // A round reset moves both of you back to the spawn and clears the objective, and keeps
 // every trace, notebook entry and world model: that is what makes repeated demonstrating
 // useful instead of starting the learning over.
@@ -269,23 +273,14 @@ function resetLevel(next = level) {
   autoReflects = 0; lessonPredictionPending = null;
   $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
-async function decide() {
-  if (!enabled || pending || paused || recording || progress.won || pet.dead) return;
-  if (calls >= 16) { enabled = false; status = '本轮已调用 16 次模型，暂停节省额度。可以示范后再继续。'; update(); return; }
-  const learning = mode === 'lab';
-  pending = true; calls++; const current = epoch; abort = new AbortController(); planStart = { ...pet };
-  status = learning ? '模型正在看这个世界的实验记录和它的机制手册；你可以继续移动。' : '模型正在观察关卡和你的示范；你可以继续移动。'; update();
-  try {
-    const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
-      learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
-        : { level, actor: pet, progress, demonstrations: samples.slice(-4), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
-      AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
-    if (current !== epoch) return;
-    if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
-    queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions)).map(a => ({ ...a }));
-    planActions = learning ? [] : queue.map(a => ({ ...a }));
-    if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
-    const injected = learning
+// Adopting a plan is the same whether it was just decided live or prefetched during playback:
+// the queue starts HERE, so planStart and the prediction baseline are taken at adoption time.
+function adoptPlan(result, learning) {
+  planStart = { ...pet };
+  queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions)).map(a => ({ ...a }));
+  planActions = learning ? [] : queue.map(a => ({ ...a }));
+  if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
+  const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
       : { lines: [`示范 ${samples.slice(-4).length} 条`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };
     // The log's job here is the decision itself: what it was shown, what it picked, what it
@@ -300,8 +295,49 @@ async function decide() {
       ? `${result.model}：${result.goal || '试探这个世界'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）· ${result.prediction ? '已先下预测' : '这次没给预测'}`
       : `${result.model}：${result.goal || '执行下一段动作'} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 参考 ${result.usedDemonstrations.length}/${result.demonstrationsProvided} 次示范`;
     lastGoal = result.goal || '';
+}
+async function decide() {
+  if (!enabled || pending || paused || recording || progress.won || pet.dead) return;
+  if (calls >= 16) { enabled = false; status = '本轮已调用 16 次模型，暂停节省额度。可以示范后再继续。'; update(); return; }
+  const learning = mode === 'lab';
+  pending = true; calls++; const current = epoch; abort = new AbortController();
+  status = learning ? '模型正在看这个世界的实验记录和它的机制手册；你可以继续移动。' : '模型正在观察关卡和你的示范；你可以继续移动。'; update();
+  try {
+    const result = await api(learning ? '/api/jump/lab/plan' : '/api/jump/decision',
+      learning ? { world: { name: `世界 ${lab.index}`, level }, actor: pet, progress, notebook: lab.notebook, note: $('#teacher-note').value, feedback }
+        : { level, actor: pet, progress, demonstrations: samples.slice(-4), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
+      AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
+    if (current !== epoch) return;
+    if (result.method !== 'model') throw new Error('接口未返回真实模型动作，已暂停');
+    adoptPlan(result, learning);
   } catch (e) { if (current === epoch) { enabled = false; logEvent('error', `决策失败：${e.name === 'TimeoutError' ? '模型等待超时' : e.message}`); saveLab(); status = `${e.name === 'TimeoutError' ? '模型等待超时' : e.message}；真人可继续，点击开始重试。`; } }
   finally { if (current === epoch) { pending = false; update(); } }
+}
+// The engine is deterministic, so the end of the current queue can be computed exactly and
+// the next plan requested while this one is still playing. If reality diverges (a fall), the
+// prefetched plan is discarded — see advance().
+function simulateQueueEnd() {
+  if (!queue.length) return null;
+  const sim = replayActions(level, actor({ x: pet.x, y: pet.y, vy: pet.vy, grounded: pet.grounded, held: pet.held }),
+    { coins: [...progress.coins], key: progress.key, switchOn: progress.switchOn, won: progress.won }, queue.map(a => ({ ...a })));
+  return { pet: sim.actor, progress: sim.progress };
+}
+async function prefetch() {
+  if (mode === 'lab' || !enabled || pending || paused || recording || progress.won || pet.dead || prefetched || !queue.length) return;
+  if (calls >= 16) return;
+  const sim = simulateQueueEnd();
+  if (!sim || sim.pet.dead || sim.progress.won) return;
+  pending = true; calls++; const current = epoch; abort = new AbortController();
+  try {
+    const result = await api('/api/jump/decision',
+      { level, actor: sim.pet, progress: sim.progress, demonstrations: samples.slice(-4), attempts, knowledge: lessonNotes, note: $('#teacher-note').value },
+      AbortSignal.any([abort.signal, AbortSignal.timeout(100000)]));
+    if (current !== epoch) return;
+    if (result.method !== 'model') throw new Error('接口未返回真实模型动作');
+    prefetched = { result };
+    logEvent('plan', `后台已提前推演出下一段（${describeActions(result.actions, false)} · ${(result.latencyMs / 1000).toFixed(1)} 秒），当前段播完即接上`);
+  } catch (e) { if (current === epoch) logEvent('error', `预取失败（不影响当前播放，播完会现场决定）：${e.name === 'TimeoutError' ? '模型等待超时' : e.message}`); }
+  finally { if (current === epoch) pending = false; }
 }
 function start() {
   if (!ready) return; if (recording) finishDemo();
@@ -400,16 +436,20 @@ function advance() {
     status = next ? `你自己通关了第 ${stageId} 关。第 ${next} 关「${stageInfo(next).name}」已解锁，也可以让小精灵再来一次这一关。`
       : '你自己通关了最后一关。小精灵那边还在继续。';
   }
-  if (enabled && !pending && !recording) {
+  if (enabled && !recording) {
     if (queue.length) {
       const action = queue[0]; step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics());
       if (--action.frames <= 0) queue.shift();
-      if (pet.dead) { falls++; queue = []; petRespawnAt = tick + 45; logEvent('fall', `小精灵跌落（第 ${falls} 次），45 帧后复活重开`); status = '小精灵摔了，正在复活重开；它自己的进度会重置，学过的东西保留。'; }
+      if (pet.dead) { falls++; queue = []; prefetched = null; petRespawnAt = tick + 45; logEvent('fall', `小精灵跌落（第 ${falls} 次），45 帧后复活重开`); status = '小精灵摔了，正在复活重开；它自己的进度会重置，学过的东西保留。'; }
       if (!queue.length) {
         if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
         if (mode !== 'lab') { scoreLessonPending(); recordAttempt(); maybeAutoReflect(); }
-      }
+      } else prefetch();
+    } else if (prefetched) {
+      const { result } = prefetched; prefetched = null;
+      adoptPlan(result, false);
+      prefetch();
     } else decide();
   }
   if (progress.won) {
