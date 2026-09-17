@@ -212,7 +212,10 @@ export function stallStreak(attempts, minGain = 16) {
   let best = -Infinity, streak = 0;
   for (const a of Array.isArray(attempts) ? attempts : []) {
     if (a?.outcome === 'won' || !Number.isFinite(a?.to?.x)) { streak = 0; continue; }
-    if (a.to.x > best + minGain) { best = Math.max(best === -Infinity ? a.to.x : best, a.to.x); streak = 0; }
+    // Picking up an objective IS progress — detouring for a coin/key/switch must not
+    // read as "stuck", or the reflection loop punishes exactly the right behaviour.
+    const gained = Array.isArray(a.events) && a.events.some(e => /捡到金币|取得钥匙|踩下机关|压力板|门开/.test(e));
+    if (gained || a.to.x > best + minGain) { best = Math.max(best === -Infinity ? a.to.x : best, a.to.x); streak = 0; }
     else streak++;
   }
   return { streak, best: best === -Infinity ? null : best };

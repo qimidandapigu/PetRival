@@ -160,3 +160,43 @@ test('hold experiment bisects between the longest safe hold and the first fatal 
   assert.equal(fatal.holdFrames, safe.holdFrames + 1, 'the boundary is exact to one frame');
   assert.ok(!safe.dead && fatal.dead);
 });
+
+test('objective pickups count as progress: a coin detour is not a stall', () => {
+  const coin = x => ({ outcome: 'alive', to: { x }, events: [`捡到金币@x=${x}`] });
+  assert.equal(stallStreak([{ outcome: 'alive', to: { x: 300 } }, coin(260), { outcome: 'alive', to: { x: 300 } }]).streak, 1,
+    'only the truly idle attempt counts');
+  assert.equal(stallStreak([coin(260), coin(240)]).streak, 0, 'collecting is progress even while moving left');
+});
+
+test('a "general" rule that pins absolute coordinates is filed as per-stage', async () => {
+  const level = starterLevel(), a = actor(level.spawn);
+  const brain = fake(async () => ({ ops: [
+    { id: 'n1', claim: '从 x=291 起跳按住 12 帧落点 x=419 安全', state: '观察', scope: '通用', evidence: ['attempt-1'] },
+    { id: 'n2', claim: '按住跳跃 1 帧空中按方向约前进 58px', state: '观察', scope: '通用', evidence: ['attempt-1'] },
+  ], note: '好' }));
+  const result = await learnJumpLesson(brain, { level, trigger: '',
+    attempts: [{ id: 'attempt-1', from: a, to: { ...a, x: 120 }, outcome: 'alive', actions: [{ move: 1, jump: false, frames: 20 }] }] });
+  assert.equal(result.knowledge.find(k => k.id === 'n1').scope, '这一关', 'coordinates make it map-specific');
+  assert.equal(result.knowledge.find(k => k.id === 'n2').scope, '通用', 'pure physics stays general');
+});
+
+test('reflections demand id reuse, and deep stalls demand a strategic retreat', async () => {
+  const level = starterLevel(), a = actor(level.spawn);
+  let system = '';
+  const brain = fake(async messages => { system = messages[0].content; return { ops: [], note: '好', tryNext: [{ move: -1, jump: false, frames: 60 }] }; });
+  await learnJumpLesson(brain, { level, trigger: '连续 5 次尝试没有实质进展（卡在 x≈806）',
+    attempts: [{ from: a, to: { ...a, x: 470 }, outcome: 'fell', actions: [{ move: 1, jump: true, frames: 45 }] }] });
+  assert.ok(system.includes('复用 knowledge 里那条规则的 id'), 'id reuse is required');
+  assert.ok(system.includes('战略性改变'), 'a deep stall asks for a strategic retreat');
+});
+
+test('a jump blocked by a closed door is labelled as terrain, not physics', () => {
+  const level = validateLevel({ version: 2, width: 800, spawn: { x: 48, y: 400 },
+    platforms: [{ x: 0, y: 400, w: 400 }, { x: 400, y: 400, w: 400 }],
+    coins: [{ x: 80, y: 388 }], key: { x: 120, y: 388 }, switch: { x: 700, y: 388 },
+    door: { x: 170, y: 100, h: 320 }, goal: { x: 760, y: 400 } });
+  const rows = holdExperiment(level, { x: 140, y: 400, vy: 0, grounded: true }, { coins: [], key: false, switchOn: false, won: false });
+  const held = rows.filter(r => r.holdFrames >= 10 && r.move === 1);
+  assert.ok(held.length && held.every(r => !r.dead && r.traveled < 40), 'premise: the closed door stops every held jump');
+  assert.ok(held.every(r => r.note && r.note.includes('不是通用物理')), 'blocked probes are mechanically labelled');
+});

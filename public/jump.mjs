@@ -15,6 +15,10 @@ function syncShared() {
 }
 let appearance = defaultAppearance('xiaotangyuan'), petName = '小精灵', storageKey = 'petrival.jump.v2.guest';
 let samples = [], recording = null, enabled = false, pending = false, paused = false, ready = false, epoch = 0, abort;
+// Passive full-run recorder: every human life is recorded whether or not they are
+// teaching. A clear becomes teaching material automatically (saveAutoDemo) — the
+// strongest learning signal used to be thrown away unless it happened in teach mode.
+let autoRec = null;
 let queue = [], calls = 0, falls = 0, humanFalls = 0, tick = 0, cameraX = 0, previousTime = 0, accumulator = 0;
 let status = '第 1 关只要一直往右走。点开始让小精灵自己试，或你亲自走一遍给它看。', feedback = '', planStart, prepared = null, petRespawnAt = 0, humanWon = false, petWonLogged = false;
 let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = true;
@@ -284,7 +288,7 @@ async function init() {
     if (view) splitView = view.splitView !== false; } catch {}
   $('#split').checked = splitView;
   human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
-  ready = true; update();
+  resetAutoRec(); ready = true; update();
 }
 // One stage at a time, in order: the ladder starts at "walk right" so a pet that knows
 // nothing can still finish something on the first try.
@@ -296,6 +300,7 @@ function goToStage(id, reason = '') {
   human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
   lab.memory = null; lab.memoryLog = [];
   calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; petWonLogged = false; lastGoal = '';
+  resetAutoRec();
   const info = stageInfo(target);
   $('#level-source').textContent = `课程第 ${target} 关 · 物理验证通过`;
   status = `第 ${target} 关「${info.name}」${reason}：${info.skill}提示：${info.hint}`;
@@ -318,7 +323,7 @@ function restartRound(reason = '') {
   cancel(); idle(); recording = null;
   human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
   calls = falls = humanFalls = 0; feedback = ''; paused = false; petRespawnAt = 0; humanWon = false; petWonLogged = false; roundIndex++; roundDemos = 0;
-  autoReflects = 0; lessonPredictionPending = null;
+  autoReflects = 0; lessonPredictionPending = null; resetAutoRec();
   $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
   status = `第 ${roundIndex} 轮${reason}：位置和目标重置，${mode === 'lab' ? '机制手册、实验记录和世界模型都保留' : '你的示范笔记保留'}。可以「回去示范」。`;
   logEvent('round', `第 ${roundIndex} 轮重开${reason}：${mode === 'lab' ? `手册 ${summarizeNotebook(lab.notebook).length} 条、实验 ${lab.traces.length} 次、累计模型调用 ${lab.calls} 次全部保留` : `已存 ${samples.length} 次示范`}`);
@@ -328,7 +333,7 @@ function restartRound(reason = '') {
 function resetLevel(next = level) {
   cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress(); resetCoop();
   calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false; petWonLogged = false;
-  autoReflects = 0; lessonPredictionPending = null;
+  autoReflects = 0; lessonPredictionPending = null; resetAutoRec();
   $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
 // Adopting a plan is the same whether it was just decided live or prefetched during playback:
@@ -428,6 +433,29 @@ function teach() {
   logEvent('demo', '开始录制你的示范（最多 4 秒 / 240 帧）');
   update(); canvas.focus();
 }
+function resetAutoRec() { autoRec = { from: { ...human }, actions: [], frames: 0 }; }
+function saveAutoDemo() {
+  if (level.coop || mode === 'lab' || !autoRec || !autoRec.actions.length) return;
+  // Re-split the passive recording into valid demos: actions <=90 frames, <=12 actions / <=240 frames each.
+  const flat = [];
+  for (const a of autoRec.actions) for (let f = a.frames; f > 0; f -= 90) flat.push({ move: a.move, jump: a.jump, frames: Math.min(f, 90) });
+  const chunks = []; let cur = [], total = 0;
+  for (const a of flat) {
+    if (total + a.frames > 240 || cur.length >= 12) { chunks.push(cur); cur = []; total = 0; }
+    cur.push(a); total += a.frames;
+  }
+  if (cur.length) chunks.push(cur);
+  // Replay chunk by chunk from the real start of the run, so every demo carries true from/to states.
+  let at = autoRec.from, prog = freshProgress(); const made = [];
+  for (const chunk of chunks) {
+    const r = replayActions(level, at, prog, chunk, 'human', physics());
+    made.push({ id: crypto.randomUUID(), level, from: { ...at }, actions: chunk, to: { ...r.actor }, outcome: r.actor.dead ? 'fell' : 'survived' });
+    at = { ...r.actor }; prog = r.progress;
+  }
+  if (!made.length) return;
+  samples = [...samples, ...made].slice(-8); save();
+  logEvent('demo', `你的通关已自动转成 ${made.length} 段示范（共 ${autoRec.frames} 帧），它之后的决策和复盘都能参考`);
+}
 function finishDemo() {
   if (!recording) return;
   if (recording.actions.length) roundDemos++;
@@ -494,12 +522,18 @@ function advance() {
     else finishDemo();
     if (recording) recording.frames++;
   }
+  if (!recording && autoRec && (autoRec.frames || input.move || input.jump)) {
+    const last = autoRec.actions.at(-1);
+    if (last && last.move === input.move && last.jump === input.jump) last.frames++;
+    else autoRec.actions.push({ ...input, frames: 1 });
+    autoRec.frames++;
+  }
   step(human, input, level, humanProgress, 'human', physics(), coopShared);
   if (coopShared) { const wasOn = coopShared.switchOn; latchPlates(level, coopShared, human, pet); if (!wasOn && coopShared.switchOn) logEvent('win', '两块压力板被同时踩住：门永久打开了，双方各自走到终点就算一起通关'); syncShared(); }
   if (recording && (recording.frames >= 240 || human.dead)) finishDemo();
   // Whoever falls respawns and restarts their own attempt; the other side is untouched.
   if (human.dead) {
-    humanFalls++; human = actor(level.spawn); humanProgress = freshProgress();
+    humanFalls++; human = actor(level.spawn); humanProgress = freshProgress(); resetAutoRec();
     logEvent('fall', `你摔了（第 ${humanFalls} 次），已复活回到起点、自己的金币和机关重置`);
   }
   if (humanProgress.won && !humanWon) {
@@ -508,7 +542,7 @@ function advance() {
       logEvent('win', '你到达了终点：等小精灵也到终点，才算一起通关');
       status = '你到了终点。小精灵那边还在路上——它到了才算一起通关。';
     } else {
-      humanWins++;
+      humanWins++; saveAutoDemo();
       logEvent('win', coopShared ? `你们一起通关了第 ${stageId} 关：配合踩板、收齐金币、取钥匙、双双到达终点` : `你自己通关了第 ${stageId} 关：收齐 ${level.coins.length} 枚金币、取钥匙、开机关、到终点`);
       markCleared(stageId, '你');
       const next = nextStage(stageId);

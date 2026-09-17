@@ -125,7 +125,11 @@ export function holdExperiment(level, from, prog) {
       if (a.dead) break;
       if (frames >= hold && a.grounded) break;
     }
-    return { holdFrames: hold, move, landingX: Math.round(a.x), traveled: Math.round(a.x - from.x), dead: a.dead === true, frames };
+    const row = { holdFrames: hold, move, landingX: Math.round(a.x), traveled: Math.round(a.x - from.x), dead: a.dead === true, frames };
+    // A held jump that goes nowhere was blocked by terrain (a closed door stands in the
+    // way, or a wall) — label it mechanically, or reflections mistake it for general physics.
+    if (!row.dead && move !== 0 && hold >= 10 && Math.abs(row.traveled) < 40) row.note = '被地形或关着的门挡住，只适用于此位置，不是通用物理';
+    return row;
   };
   const coarse = [1, 10, 20, 30, 45, 60].map(hold => probe(hold, 1));
   // The actionable answer usually hides BETWEEN the coarse probes (1帧 safe, 10帧 dead →
@@ -179,12 +183,15 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   const experiment = trigger && lastFall ? { note: '真实引擎实验：从它真实起跳位置（takeOff，离地前最后一个落地点），按住跳跃键不同帧数、全程按住向右的真实结果（最后一行是对照：同样的长跳但不按方向）。这是物理事实，不是猜测——跳跃的水平位移来自空中按住方向键。',
     from: { x: Math.round(anchor.x), y: Math.round(anchor.y) }, rows: holdExperiment(level, { ...lastFall.from, x: anchor.x, y: anchor.y, vy: 0, grounded: true }, experimentProgress) } : null;
   const screen = tileMap(level, actor(level.spawn), { coins: experimentProgress.coins, key: experimentProgress.key, switchOn: experimentProgress.switchOn });
+  const stallN = Number(trigger.match(/连续\s*(\d+)\s*次/)?.[1] || 0);
   const started = Date.now();
   const raw = await ask(brain, [
-    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它真实起跳点向右，按住跳跃不同帧数分别跳多远、会不会摔（含二分细测，标注了「最长安全按住」「再长就摔死」——这是能直接执行的帧数边界）。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断。tryNext 从精灵当前位置开始执行——如果关键动作发生在别处（比如要从 x=432 起跳），必须先包含走到那个位置的助跑段。重复旧做法没有意义。` : ''}
+    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它真实起跳点向右，按住跳跃不同帧数分别跳多远、会不会摔（含二分细测，标注了「最长安全按住」「再长就摔死」——这是能直接执行的帧数边界）。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断。tryNext 从精灵当前位置开始执行——如果关键动作发生在别处（比如要从 x=432 起跳），必须先包含走到那个位置的助跑段。重复旧做法没有意义。${stallN >= 4 ? `
+已连续卡死 ${stallN} 次：局部变体不够了。tryNext 必须战略性改变——向左后撤到空旷或低位区域再组织进攻，或转向尚未完成的目标物（没收的金币、钥匙、机关），不要再向右硬冲同一个位置。` : ''}` : ''}
 - 只写地图和记录里能直接支持的东西：多远要起跳、按多久能跳多远、哪里掉下去过、金币/钥匙/门/机关各自是什么反应。
 - **位置只能引用 attempts 里的 takeOff（真实起跳点）和 fellAt（摔落点）精确坐标、或引擎实验的数字；严禁从动作梗概推算位置**——猜出来的位置会把规则教错。描述一次失败时，先核对它到底从哪里起跳。
 - 每条给出 evidence：**必须**填列表里真实出现的尝试 id（attempt-1、attempt-2…）或示范 id；填了才会被系统按证据计数升级，不填的只会停在「猜想」。
+- 更新、补充或修正已有规则时，**必须复用 knowledge 里那条规则的 id**，不要为同一知识造新 id——证据只有复用 id 才能累积升级；同一知识反复造新 id 会永远停在低置信。
 - 如果已有的知识被新的记录推翻，就用同一个 id 输出 state 为「已推翻」。
 - scope 二选一：「通用」= 和地图无关、在任何一关都成立的物理与机制（比如按住 N 帧跳多远——所有关卡共用同一套物理，引擎实验的数字处处适用；空中要按住方向键才有水平位移；机关要带着钥匙落地踩；被关着的门挡住说明机关没开而不是跳的问题）；「这一关」= 只和这关地图位置有关的事实（缺口在哪、机关在哪、哪个平台跳得上）。能把经验上升成通用规则就上升，别让同一套物理在每一关被重新发现一遍。
 - 不要写通用游戏常识，也不要写这一关看不出来的规则。
@@ -195,7 +202,11 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   // Every attempt carries an id so the model can cite it: without citable ids nothing can
   // ever reach 确认 and the knowledge stays permanently unproven.
   const evidenceIds = [...attempts.map(a => a.id), ...demonstrations.map(d => d.id)];
-  const reduced = reduceNotebook(knowledge, raw?.ops, evidenceIds);
+  // A rule that pins absolute coordinates describes THIS map, however physical it sounds —
+  // those get filed as per-stage, never as cross-stage physics.
+  const ops = (Array.isArray(raw?.ops) ? raw.ops : []).map(op =>
+    op && op.scope === '通用' && /[xX]\s*[≈=＝]\s*\d|起跳\s*x|落点\s*x/.test(String(op.claim ?? '')) ? { ...op, scope: '这一关' } : op);
+  const reduced = reduceNotebook(knowledge, ops, evidenceIds);
   let tryActions = null;
   if (experiment) { try { tryActions = fitActions(raw?.tryNext, 120).actions.slice(0, 6); } catch { tryActions = null; } }
   return { method: 'model', model: brain.info().model, knowledge: reduced.notebook, adjusted: reduced.adjusted,

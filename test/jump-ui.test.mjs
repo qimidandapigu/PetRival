@@ -79,3 +79,17 @@ test('reflections split rules into a cross-stage handbook and per-stage notes',a
  assert.equal(g.lessonNotes.length,1,'the map-specific rule stayed with the stage');
  assert.equal(JSON.parse(f.saved.get('petrival.jump.handbook.v1.pet.p'))[0].id,'g1','the handbook persists across stages');
 });
+
+test('a human clear is auto-converted into demonstrations',async()=>{
+ const f=await fixture(jumpStages.stageLevel(1));f.api.start();await new Promise(r=>setImmediate(r));
+ f.key('keydown','ArrowRight');
+ for(let i=0;i<2000&&f.api.get().samples.length===0;i++)f.api.advance();
+ f.key('keyup','ArrowRight');
+ const g=f.api.get();
+ assert.ok(g.samples.length>0,'the clear became teaching material without any teach mode');
+ assert.ok(g.samples.every(s=>s.outcome==='survived'),'a clear run has no fell chunks');
+ for(const s of g.samples){
+  assert.ok(s.actions.length<=12&&s.actions.every(a=>a.frames>=1&&a.frames<=90)&&s.actions.reduce((n,a)=>n+a.frames,0)<=240,'chunks respect the decision-format limits');
+  assert.ok(Number.isFinite(s.from.x)&&Number.isFinite(s.to.x),'every chunk carries true from/to states');
+ }
+});
