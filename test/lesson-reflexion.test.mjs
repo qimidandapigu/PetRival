@@ -132,3 +132,13 @@ test('automatic reflection tells the model why it is summarising', async () => {
   assert.equal(manual.method, 'model');
   assert.equal(system.includes('自动触发'), false, 'manual summarising stays unchanged');
 });
+test('the engine experiment anchors on the measured take-off spot, not the segment start', async () => {
+  const level = starterLevel(), a = actor(level.spawn);
+  let user = {};
+  const brain = fake(async messages => { user = JSON.parse(messages[1].content); return { ops: [], note: '', tryNext: [{ move: 1, jump: true, frames: 45 }] }; });
+  await learnJumpLesson(brain, { level, trigger: '同一区域连续跌落 2 次',
+    attempts: [{ from: a, to: { ...a, x: 470 }, outcome: 'fell', takeOff: { x: 400, y: 400 }, fellAt: 470, actions: [{ move: 1, jump: true, frames: 20 }] }] });
+  assert.equal(user.engineExperiment.from.x, 400, 'the probe runs from the real take-off spot, not from x=48');
+  assert.equal(user.attempts[0].takeOff.x, 400, 'the take-off anchor is in the episodic card');
+  assert.equal(user.attempts[0].fellAt, 470, 'the fall position is in the episodic card');
+});

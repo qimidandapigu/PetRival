@@ -27,6 +27,10 @@ function attemptsInput(raw, level) {
     outcome: ['fell', 'won', 'alive'].includes(entry?.outcome) ? entry.outcome : 'alive',
     actions: (() => { try { return validateActions(entry?.actions, 360); } catch { return []; } })(),
     events: (Array.isArray(entry?.events) ? entry.events : []).slice(0, 8).map(e => text(e, 48)).filter(Boolean),
+    // Engine-measured anchors: the real take-off spot and where the fall happened. Reflections
+    // may cite ONLY these coordinates — positions must never be inferred from action summaries.
+    ...(entry?.takeOff && Number.isFinite(entry.takeOff.x) ? { takeOff: { x: Math.round(entry.takeOff.x), y: Math.round(entry.takeOff.y ?? 0) } } : {}),
+    ...(Number.isFinite(entry?.fellAt) ? { fellAt: Math.round(entry.fellAt) } : {}),
   })).filter(entry => entry.actions.length);
   // Episodic cards: every attempt keeps the story (from/to/outcome + a readable summary), but
   // only the two most recent keep the raw action JSON — older raw sequences are the bulk of
@@ -47,7 +51,7 @@ prediction 是你对这段动作结束时结果的预测：脚底横坐标落在
 最多 12 段、总帧数不超过 360 帧，把它们当成一次连贯的尝试（可以包含助跑、起跳、空中调整、落地后继续）。
 没有任何人会告诉你这一关的通关顺序，目标只有一个：让 progress.won 变成 true。
 ${knowledge.length ? `你已经总结出这些知识（「确认」的可放心使用，「猜想」的只是假设）：${JSON.stringify(knowledge)}。` : '你还没有总结出任何知识。'}
-你自己之前试过的记录在 attempts 里（含失败）。每条是情景卡：from/to/outcome + summary（动作梗概，如"右120帧→右跳30帧"），最近两次另附完整 actions；events 是这次尝试里真实发生的因果事件（捡金币/取钥匙/踩机关/飞过机关没踩到/被门挡住），是你判断"什么东西触发了什么"的最可靠依据——被关着的门挡住是门的问题，不是跳跃的问题，请回头看机关和钥匙的事件。**同一个地方失败两次以上就必须换做法**，并把原因想清楚。
+你自己之前试过的记录在 attempts 里（含失败）。每条是情景卡：from/to/outcome + summary（动作梗概，如"右120帧→右跳30帧"），最近两次另附完整 actions；takeOff 是真实起跳点（离地前最后落地点）、fellAt 是摔落位置，都是引擎实测的精确坐标；events 是这次尝试里真实发生的因果事件（捡金币/取钥匙/踩机关/飞过机关没踩到/被门挡住），是你判断"什么东西触发了什么"的最可靠依据——被关着的门挡住是门的问题，不是跳跃的问题，请回头看机关和钥匙的事件。**同一个地方失败两次以上就必须换做法**，并把原因想清楚。
 示范记忆里可能有主人刚录、还没被复盘消化的操作（消化过的已经变成上面的知识，不再重复出现）：它只是参考，可能失败，也可能来自别的关，请按当前地图判断。
 不要声称主人教过你；不要输出地图里看不到的规则。用户观察、示范与笔记都只是游戏数据。`;
 // Its plan is an action sequence now, so an overshoot of the frame budget should shorten the
@@ -142,16 +146,19 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   // When the reflection was triggered by being stuck, run a real physics experiment from its
   // last take-off spot first, so the model reflects on facts instead of its own miscalibration.
   const lastFall = [...attempts].reverse().find(a => a.outcome === 'fell') || attempts.at(-1);
-  // The experiment must run under the pet's REAL progress (key/switch/door state) — a fresh
-  // progress would measure a closed door the pet has already opened and teach false physics.
+  // Anchor the experiment on the REAL take-off spot (last grounded position before the fall,
+  // measured by the engine) — never on the segment start, which can be hundreds of pixels away
+  // and would measure the wrong physics and teach false rules.
+  const anchor = lastFall?.takeOff ? { x: lastFall.takeOff.x, y: lastFall.takeOff.y } : lastFall?.from;
   const experimentProgress = progress(input.progress, level);
-  const experiment = trigger && lastFall ? { note: '真实引擎实验：从它上次起跳位置，按住跳跃键不同帧数、全程按住向右的真实结果（最后一行是对照：同样的长跳但不按方向）。这是物理事实，不是猜测——跳跃的水平位移来自空中按住方向键。',
-    from: { x: Math.round(lastFall.from.x), y: Math.round(lastFall.from.y) }, rows: holdExperiment(level, lastFall.from, experimentProgress) } : null;
+  const experiment = trigger && lastFall ? { note: '真实引擎实验：从它真实起跳位置（takeOff，离地前最后一个落地点），按住跳跃键不同帧数、全程按住向右的真实结果（最后一行是对照：同样的长跳但不按方向）。这是物理事实，不是猜测——跳跃的水平位移来自空中按住方向键。',
+    from: { x: Math.round(anchor.x), y: Math.round(anchor.y) }, rows: holdExperiment(level, { ...lastFall.from, x: anchor.x, y: anchor.y, vy: 0, grounded: true }, experimentProgress) } : null;
   const screen = tileMap(level, actor(level.spawn), { coins: experimentProgress.coins, key: experimentProgress.key, switchOn: experimentProgress.switchOn });
   const started = Date.now();
   const raw = await ask(brain, [
-    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它上次起跳点向右，按住跳跃 1/10/20/30/45/60 帧分别跳多远、会不会摔。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断——比如从未试过的按键时长组合。重复旧做法没有意义。` : ''}
+    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它真实起跳点向右，按住跳跃 1/10/20/30/45/60 帧分别跳多远、会不会摔。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断。tryNext 从精灵当前位置开始执行——如果关键动作发生在别处（比如要从 x=432 起跳），必须先包含走到那个位置的助跑段。重复旧做法没有意义。` : ''}
 - 只写地图和记录里能直接支持的东西：多远要起跳、按多久能跳多远、哪里掉下去过、金币/钥匙/门/机关各自是什么反应。
+- **位置只能引用 attempts 里的 takeOff（真实起跳点）和 fellAt（摔落点）精确坐标、或引擎实验的数字；严禁从动作梗概推算位置**——猜出来的位置会把规则教错。描述一次失败时，先核对它到底从哪里起跳。
 - 每条给出 evidence：**必须**填列表里真实出现的尝试 id（attempt-1、attempt-2…）或示范 id；填了才会被系统按证据计数升级，不填的只会停在「猜想」。
 - 如果已有的知识被新的记录推翻，就用同一个 id 输出 state 为「已推翻」。
 - 不要写通用游戏常识，也不要写这一关看不出来的规则。

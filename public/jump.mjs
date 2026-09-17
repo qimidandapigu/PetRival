@@ -51,6 +51,10 @@ function freshSamples() { return samples.filter(s => !s.distilled).slice(-4); }
 // needs to learn "key → step on switch → door opens" instead of misreading a closed door as a
 // jump problem. Reset when a plan is adopted; attached to the attempt when it ends.
 let attemptEvents = [];
+// Anchors, measured by the engine frame by frame — never guessed by the model: where the pet
+// was last grounded (the real take-off spot) and where it fell. Reflections and the engine
+// experiment anchor on THESE, which is what keeps learned rules grounded in fact.
+let attemptTakeOff = null, attemptFellAt = null;
 function noteAttemptEvents(before) {
   const at = o => `@x=${Math.round(o.x)}`;
   if (!before.key && progress.key) attemptEvents.push(`取得钥匙${at(level.key)}`);
@@ -67,8 +71,10 @@ function recordAttempt() {
   const outcome = pet.dead ? 'fell' : progress.won ? 'won' : 'alive';
   attempts = [...attempts, { from: { x: planStart.x, y: planStart.y, vy: planStart.vy, grounded: planStart.grounded },
     to: { x: pet.x, y: pet.y, vy: pet.vy, grounded: pet.grounded }, outcome, actions: planActions.map(a => ({ ...a })),
+    ...(attemptTakeOff ? { takeOff: { x: Math.round(attemptTakeOff.x), y: Math.round(attemptTakeOff.y) } } : {}),
+    ...(attemptFellAt != null ? { fellAt: attemptFellAt } : {}),
     ...(attemptEvents.length ? { events: [...attemptEvents] } : {}) }].slice(-8);
-  planActions = []; attemptEvents = [];
+  planActions = []; attemptEvents = []; attemptTakeOff = null; attemptFellAt = null;
   logEvent('attempt', `第 ${attempts.length} 次尝试：x=${Math.round(planStart.x)} → x=${Math.round(pet.x)}（${outcome === 'fell' ? '掉下去了' : outcome === 'won' ? '通关' : '还活着'}）${attempts[attempts.length - 1].events ? `，事件：${attempts[attempts.length - 1].events.join('；')}` : ''}，动作 ${describeActions(attempts[attempts.length - 1].actions, false)}`);
 }
 // Demonstrations and failed attempts become rules, not just replayable clips.
@@ -321,7 +327,7 @@ function adoptPlan(result, learning) {
   planStart = { ...pet };
   queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions, 360)).map(a => ({ ...a }));
   planActions = learning ? [] : queue.map(a => ({ ...a }));
-  attemptEvents = [];
+  attemptEvents = []; attemptTakeOff = null; attemptFellAt = null;
   if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
   const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
@@ -505,6 +511,8 @@ function advance() {
       const action = queue[0];
       const before = { x: pet.x, y: pet.y, key: progress.key, switchOn: progress.switchOn, coins: [...progress.coins] };
       step(pet, mode === 'lab' && lab.world ? channelInput(lab.world, action) : action, level, progress, 'pet', physics(), coopShared);
+      if (pet.grounded) attemptTakeOff = { x: pet.x, y: pet.y };
+      if (pet.dead && attemptFellAt == null) attemptFellAt = Math.round(pet.x);
       if (coopShared) { const wasOn = coopShared.switchOn; latchPlates(level, coopShared, human, pet); if (!wasOn && coopShared.switchOn) { attemptEvents.push('和主人同时踩住两块压力板，门开了'); logEvent('win', '两块压力板被同时踩住：门永久打开了，双方各自走到终点就算一起通关'); } syncShared(); }
       if (mode !== 'lab') noteAttemptEvents(before);
       if (--action.frames <= 0) queue.shift();
