@@ -15,7 +15,7 @@ let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = tru
 let attempts = [], lessonNotes = [], planActions = [];
 // Reflexion loop state (classic lesson mode): the pet predicts where each plan ends, the
 // engine grades it, and repeated falls in the same spot trigger an automatic review.
-let lessonPredictionPending = null, lessonAccuracy = { hits: 0, total: 0 }, autoReflects = 0;
+let lessonPredictionPending = null, lessonAccuracy = { hits: 0, total: 0 }, autoReflects = 0, reflecting = false;
 // Playback never waits for thinking: while the current segment plays, the engine simulates
 // its exact end state (deterministic physics) and the next segment is requested ahead of
 // time. `prefetched` holds that ready-made next plan.
@@ -45,8 +45,12 @@ function recordAttempt() {
 }
 // Demonstrations and failed attempts become rules, not just replayable clips.
 async function learnLesson(trigger = '') {
-  if (mode === 'lab' || pending) return;
+  // Reflection runs on the server's induce lane, in parallel with decisions (play lane) and
+  // prefetch — it must NOT be dropped just because a decision is in flight. Its own flag
+  // only prevents two reflections overlapping each other.
+  if (mode === 'lab' || reflecting) return;
   if (!attempts.length && !samples.length) { status = '还没有可以总结的东西：让它试几次，或者你示范一次。'; return update(); }
+  reflecting = true;
   $('#lesson-learn').disabled = true;
   status = trigger ? '它正在复盘刚才的失败…' : '正在把你的示范和它的尝试总结成这一关的规则…'; update();
   try {
@@ -66,12 +70,12 @@ async function learnLesson(trigger = '') {
     }
     status = `现在有 ${lessonNotes.length} 条规则（其中确认 ${lessonNotes.filter(n => n.state === '确认').length} 条），它下次决策会参考。`;
   } catch (e) { logEvent('error', `总结失败：${e.message}`); status = e.message; }
-  finally { $('#lesson-learn').disabled = false; update(); }
+  finally { reflecting = false; $('#lesson-learn').disabled = false; update(); }
 }
 // Reflexion: nobody clicks anything. Two falls in the same spot — or two attempts that fail
 // to push the frontier forward at all — make it stop and turn its failures into rules.
 function maybeAutoReflect() {
-  if (mode === 'lab' || pending || autoReflects >= 3) return;
+  if (mode === 'lab' || reflecting || autoReflects >= 3) return;
   const { streak, x } = sameSpotStreak(attempts), stall = stallStreak(attempts);
   if (streak < 2 && stall.streak < 2) return;
   autoReflects++;
