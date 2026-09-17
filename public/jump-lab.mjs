@@ -176,6 +176,36 @@ export function scorePrediction(prediction, before, after, dead) {
   return { actual, hits: fields.filter(k => actual[k] === prediction[k]).length, total: fields.length,
     missed: fields.filter(k => actual[k] !== prediction[k]) };
 }
+// Classic lesson mode uses the same predict-then-check loop as the lab, but the prediction
+// is where the sequence ends: the x range under its feet, and whether it expects to die.
+export function lessonPrediction(raw, level) {
+  if (!raw || typeof raw !== 'object') return null;
+  const xMin = Number(raw.xMin), xMax = Number(raw.xMax), width = Number(level?.width);
+  if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) return null;
+  if (xMin > xMax || xMax - xMin > 400) return null;
+  if (Number.isFinite(width) && (xMax < 0 || xMin > width)) return null;
+  return { xMin: Math.round(Math.max(0, xMin)), xMax: Math.round(xMax), dead: raw.dead === true };
+}
+export function scoreLessonPrediction(prediction, after, dead) {
+  if (!prediction) return null;
+  const actualDead = dead === true;
+  const deadRight = actualDead === prediction.dead;
+  const inRange = actualDead ? true : Number.isFinite(after?.x) && after.x >= prediction.xMin && after.x <= prediction.xMax;
+  const hits = (deadRight ? 1 : 0) + (inRange ? 1 : 0);
+  return { hit: hits === 2, hits, total: 2, actual: { x: Math.round(after?.x ?? 0), dead: actualDead },
+    missed: [...(deadRight ? [] : ['生死']), ...(!actualDead && !inRange ? ['落点'] : [])] };
+}
+// Auto-reflection trigger: consecutive falls ending within `radius` pixels are the same
+// unsolved spot. Any non-fall attempt resets the streak.
+export function sameSpotStreak(attempts, radius = 48) {
+  let streak = 0, lastX = null;
+  for (const a of Array.isArray(attempts) ? attempts : []) {
+    if (a?.outcome !== 'fell' || !Number.isFinite(a?.to?.x)) { streak = 0; lastX = null; continue; }
+    streak = lastX !== null && Math.abs(a.to.x - lastX) < radius ? streak + 1 : 1;
+    lastX = a.to.x;
+  }
+  return { streak, x: lastX };
+}
 export function scorePriorGuesses(guesses, world) {
   const rows = CHANNELS.map(channel => {
     const guess = (Array.isArray(guesses) ? guesses : []).find(g => g?.channel === channel) || { role: 'unknown', confidence: 0 };

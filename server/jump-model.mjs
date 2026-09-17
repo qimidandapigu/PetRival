@@ -1,5 +1,5 @@
 import { validateLevel, validateActions, starterLevel, verifyLevel, PHYSICS, tileMap, actor } from '../public/jump-world.mjs';
-import { CHANNELS, ROLES, TRACE_ORIGINS, validateChannelActions, validatePrediction, reduceNotebook, summarizeNotebook } from '../public/jump-lab.mjs';
+import { CHANNELS, ROLES, TRACE_ORIGINS, validateChannelActions, validatePrediction, reduceNotebook, summarizeNotebook, lessonPrediction } from '../public/jump-lab.mjs';
 
 // Shared with server/jump-world-api.mjs, which owns the code-sandbox lane.
 export const error = (message, status = 422) => Object.assign(new Error(message), { status });
@@ -27,7 +27,8 @@ function attemptsInput(raw, level) {
 export const LESSON_SYSTEM = (screen, knowledge) => `你是一个横版游戏里的小精灵，你要自己打通这一关。你只能按键，不能改坐标、金币或门。
 下面这张字符地图就是你看到的画面，每格 16 像素，一行一行从上往下，最下面一行是画面底部；${screen.legend}。
 你能按的键只有三个：向左、向右、跳。跳要在落地时按下才起跳，按住越久跳得越远。
-输出一段完整的动作序列：JSON {actions:[{move:-1或0或1,jump:boolean,frames:1到90}],goal:"这一步想干什么",plan:"一句话说明你打算怎么过这一关",usedDemonstrations:[参考过的示范id],usedNotes:[参考过的知识id]}。
+输出一段完整的动作序列：JSON {actions:[{move:-1或0或1,jump:boolean,frames:1到90}],prediction:{xMin:像素,xMax:像素,dead:boolean},goal:"这一步想干什么",plan:"一句话说明你打算怎么过这一关",usedDemonstrations:[参考过的示范id],usedNotes:[参考过的知识id]}。
+prediction 是你对这段动作结束时结果的预测：脚底横坐标落在 xMin 到 xMax 之间，dead 表示你认为它会摔死。引擎会按真实结果给预测打分，预测落空说明你对这一关的判断有误。
 最多 12 段、总帧数不超过 240 帧，把它们当成一次连贯的尝试（可以包含助跑、起跳、空中调整、落地后继续）。
 没有任何人会告诉你这一关的通关顺序，目标只有一个：让 progress.won 变成 true。
 ${knowledge.length ? `你已经总结出这些知识（「确认」的可放心使用，「猜想」的只是假设）：${JSON.stringify(knowledge)}。` : '你还没有总结出任何知识。'}
@@ -72,7 +73,8 @@ export async function planJump(brain, input, { signal } = {}) {
   ], { signal });
   let fitted; try { fitted = fitActions(raw?.actions); } catch { throw error('模型给出了无效动作，已暂停；请重试。', 503); }
   const actions = fitted.actions;
-  return { method: 'model', model: brain.info().model, actions, goal: text(raw.goal, 160), plan: text(raw.plan, 240), trimmedFrames: fitted.trimmed,
+  const prediction = lessonPrediction(raw?.prediction, level);
+  return { method: 'model', model: brain.info().model, actions, prediction, goal: text(raw.goal, 160), plan: text(raw.plan, 240), trimmedFrames: fitted.trimmed,
     attemptsProvided: attempts.length,
     usedDemonstrations: (Array.isArray(raw.usedDemonstrations) ? raw.usedDemonstrations : []).filter(id => demonstrations.some(d => d.id === id)),
     usedNotes: (Array.isArray(raw.usedNotes) ? raw.usedNotes : []).map(String).filter(id => knowledge.some(n => n.id === id)),
@@ -93,10 +95,11 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
     }));
   } catch (e) { throw error(e.message); }
   if (!attempts.length && !demonstrations.length) throw error('还没有可以总结的尝试或示范');
+  const trigger = text(input.trigger, 120);
   const screen = tileMap(level, actor(level.spawn), { coins: [], key: false, switchOn: false });
   const started = Date.now();
   const raw = await ask(brain, [
-    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。
+    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}
 - 只写地图和记录里能直接支持的东西：多远要起跳、按多久能跳多远、哪里掉下去过、金币/钥匙/门/机关各自是什么反应。
 - 每条给出 evidence：**必须**填列表里真实出现的尝试 id（attempt-1、attempt-2…）或示范 id；填了才会被系统按证据计数升级，不填的只会停在「猜想」。
 - 如果已有的知识被新的记录推翻，就用同一个 id 输出 state 为「已推翻」。

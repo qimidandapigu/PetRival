@@ -1,5 +1,5 @@
 import { actor, step, progress as freshProgress, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
-import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
+import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scoreLessonPrediction, sameSpotStreak, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
 import { STAGES, stageLevel, stageInfo, nextStage, unlockAfter, stagePickerState } from './jump-stages.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
 const $ = s => document.querySelector(s), canvas = $('#jump-canvas'), ctx = canvas.getContext('2d');
@@ -13,6 +13,9 @@ let lastGoal = '', petWins = 0, humanWins = 0, logFilter = 'all', sidebars = tru
 // The pet's own experience, and the rules it has summarised out of that experience and your
 // demonstrations. Both are memory: they are stored and re-sent, the weights never change.
 let attempts = [], lessonNotes = [], planActions = [];
+// Reflexion loop state (classic lesson mode): the pet predicts where each plan ends, the
+// engine grades it, and repeated falls in the same spot trigger an automatic review.
+let lessonPredictionPending = null, lessonAccuracy = { hits: 0, total: 0 }, autoReflects = 0;
 function saveStage() { try { localStorage.setItem(stageKey, JSON.stringify({ stageId, cleared: clearedStages, petWins, humanWins, attempts: attempts.slice(-8), notes: lessonNotes })); } catch {} }
 function loadStage(stored) {
   if (!stored) return;
@@ -37,19 +40,40 @@ function recordAttempt() {
   logEvent('attempt', `第 ${attempts.length} 次尝试：x=${Math.round(planStart.x)} → x=${Math.round(pet.x)}（${outcome === 'fell' ? '掉下去了' : outcome === 'won' ? '通关' : '还活着'}），动作 ${describeActions(attempts[attempts.length - 1].actions, false)}`);
 }
 // Demonstrations and failed attempts become rules, not just replayable clips.
-async function learnLesson() {
+async function learnLesson(trigger = '') {
   if (mode === 'lab' || pending) return;
   if (!attempts.length && !samples.length) { status = '还没有可以总结的东西：让它试几次，或者你示范一次。'; return update(); }
   $('#lesson-learn').disabled = true;
-  status = '正在把你的示范和它的尝试总结成这一关的规则…'; update();
+  status = trigger ? '它正在复盘刚才的失败…' : '正在把你的示范和它的尝试总结成这一关的规则…'; update();
   try {
-    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes }, AbortSignal.timeout(120000));
+    const result = await api('/api/jump/lesson/learn', { level, attempts, demonstrations: samples.slice(-4), knowledge: lessonNotes, trigger }, AbortSignal.timeout(120000));
     lessonNotes = summarizeNotebook(result.knowledge); saveStage();
     logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
     for (const note of lessonNotes.slice(-3)) logEvent('learn', `规则【${note.state}】${note.claim}（证据 ${note.evidence.length} 条）`);
     status = `现在有 ${lessonNotes.length} 条规则（其中确认 ${lessonNotes.filter(n => n.state === '确认').length} 条），它下次决策会参考。`;
   } catch (e) { logEvent('error', `总结失败：${e.message}`); status = e.message; }
   finally { $('#lesson-learn').disabled = false; update(); }
+}
+// Reflexion: nobody clicks anything. Two falls in the same spot, or a prediction that kept
+// missing, make it stop and turn its own failures into rules before trying again.
+function maybeAutoReflect() {
+  if (mode === 'lab' || pending || autoReflects >= 3) return;
+  const { streak, x } = sameSpotStreak(attempts);
+  if (streak < 2) return;
+  autoReflects++;
+  logEvent('learn', `同一区域（x≈${Math.round(x)}）连续跌落 ${streak} 次，自动让它复盘`);
+  learnLesson(`在 x≈${Math.round(x)} 附近连续摔了 ${streak} 次，同一做法反复失败`);
+}
+function scoreLessonPending() {
+  const pending0 = lessonPredictionPending;
+  lessonPredictionPending = null;
+  if (!pending0) return;
+  const scored = scoreLessonPrediction(pending0.prediction, pet, pet.dead);
+  if (!scored) return;
+  lessonAccuracy = { hits: lessonAccuracy.hits + scored.hits, total: lessonAccuracy.total + scored.total };
+  const p = pending0.prediction;
+  logEvent('predict', `它预测落点 x∈[${p.xMin},${p.xMax}]${p.dead ? '（会摔）' : ''}，实际 x=${scored.actual.x}${scored.actual.dead ? '（跌落）' : ''} → ${scored.hit ? '预测命中' : `预测落空（错在 ${scored.missed.join('、')}）`}，累计 ${lessonAccuracy.hits}/${lessonAccuracy.total}`);
+  feedback += scored.hit ? '；预测命中' : `；预测落空（${scored.missed.join('、')}）`;
 }
 // Blank lab: this world's channel roles and physics exist only in `lab.world`, and `mode`
 // decides whether the model is playing a designed level or learning from scratch.
@@ -203,6 +227,7 @@ function restartRound(reason = '') {
   cancel(); idle(); recording = null;
   human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
   calls = falls = humanFalls = 0; feedback = ''; paused = false; petRespawnAt = 0; humanWon = false; roundIndex++; roundDemos = 0;
+  autoReflects = 0; lessonPredictionPending = null;
   $('#soundless-pause').textContent = '暂停'; $('#camera').value = 'human';
   status = `第 ${roundIndex} 轮${reason}：位置和目标重置，${mode === 'lab' ? '机制手册、实验记录和世界模型都保留' : '你的示范笔记保留'}。可以「回去示范」。`;
   logEvent('round', `第 ${roundIndex} 轮重开${reason}：${mode === 'lab' ? `手册 ${summarizeNotebook(lab.notebook).length} 条、实验 ${lab.traces.length} 次、累计模型调用 ${lab.calls} 次全部保留` : `已存 ${samples.length} 次示范`}`);
@@ -212,6 +237,7 @@ function restartRound(reason = '') {
 function resetLevel(next = level) {
   cancel(); idle(); recording = null; level = validateLevel(next); human = actor(level.spawn); pet = actor(level.spawn); progress = freshProgress(); humanProgress = freshProgress();
   calls = falls = humanFalls = 0; feedback = ''; paused = false; roundIndex = 1; roundDemos = 0; petRespawnAt = 0; humanWon = false;
+  autoReflects = 0; lessonPredictionPending = null;
   $('#soundless-pause').textContent = '暂停'; status = '关卡已锁定。点击开始，让模型自己尝试。'; update();
 }
 async function decide() {
@@ -235,9 +261,10 @@ async function decide() {
       : { lines: [`示范 ${samples.slice(-4).length} 条`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };
     // The log's job here is the decision itself: what it was shown, what it picked, what it
     // expects — not the plumbing around the call.
-    logEvent('choice', `第 ${calls} 次选择：看到 ${describeSituation()}${feedback ? ` · 上次「${feedback.slice(0, 24)}…」` : ''} ｜ 记忆：${injected.lines.join(' + ')} ｜ 它选择：${describeActions(queue, learning)} ｜ 目标「${result.goal || (learning ? '试探这个世界' : '继续前进')}」${learning && result.prediction ? ` ｜ 预测：${describePrediction(result.prediction)}` : ''} ｜ ${(result.latencyMs / 1000).toFixed(1)} 秒`);
+    logEvent('choice', `第 ${calls} 次选择：看到 ${describeSituation()}${feedback ? ` · 上次「${feedback.slice(0, 24)}…」` : ''} ｜ 记忆：${injected.lines.join(' + ')} ｜ 它选择：${describeActions(queue, learning)} ｜ 目标「${result.goal || (learning ? '试探这个世界' : '继续前进')}」${result.prediction ? ` ｜ 预测：${learning ? describePrediction(result.prediction) : `落点 x∈[${result.prediction.xMin},${result.prediction.xMax}]${result.prediction.dead ? '（它预计会摔）' : ''}`}` : ''} ｜ ${(result.latencyMs / 1000).toFixed(1)} 秒`);
     if (learning) lab.calls++;
     if (learning) lab.pending = result.prediction ? { prediction: result.prediction, start: { ...pet } } : null;
+    else lessonPredictionPending = result.prediction ? { prediction: result.prediction, start: { ...pet } } : null;
     noteMemory(`第 ${calls} 次选择`, learning);
     saveLab(); update();
     status = learning
@@ -352,7 +379,7 @@ function advance() {
       if (!queue.length) {
         if (modelPlan) finishModelPlan(); else scoreLabPrediction();
         feedback = `从 ${JSON.stringify(planStart)} 到 ${JSON.stringify(pet)}；${pet.dead ? '跌落' : progress.won ? '完成' : '动作完成'}，物品 ${JSON.stringify(progress)}`;
-        if (mode !== 'lab') recordAttempt();
+        if (mode !== 'lab') { scoreLessonPending(); recordAttempt(); maybeAutoReflect(); }
       }
     } else decide();
   }
@@ -361,6 +388,12 @@ function advance() {
     if (!clearedStages.includes(stageId)) {
       petWins++; markCleared(stageId, petName);
       logEvent('win', `${petName}自己通关了第 ${stageId} 关「${stageInfo(stageId).name}」（本轮模型调用 ${calls} 次、跌落 ${falls} 次）`);
+      // Consolidate the win while it is fresh: the successful run becomes rules, not just a log line.
+      if (mode !== 'lab' && autoReflects < 3 && attempts.length) {
+        autoReflects++; recordAttempt();
+        logEvent('learn', '它自己通关了，自动把这次成功固化成规则');
+        learnLesson('它自己通关了这一关：把这次成功里的关键做法固化成规则，供以后的关卡参考');
+      }
     }
     const next = nextStage(stageId);
     status = next ? `${petName}自己收齐金币、取钥匙、开门、到达终点。第 ${next} 关「${stageInfo(next).name}」已解锁。`
