@@ -74,6 +74,77 @@ export function touch(a, role, level, p, world = null) {
   if (!world && bag.key && near(level.switch) && a.grounded) bag.switchOn = true;
   if (bag.key && bag.switchOn && bag.coins.length === level.coins.length && Math.abs(a.x - level.goal.x) < 24 && Math.abs(a.y - level.goal.y) < 28) p.won = true;
 }
+// Every interactable object is one declarative row: a region, the preconditions for its
+// effect, and what the effect is. Attribution is then ONE generic rule — "the actor entered
+// the region but the effect did not fire; list the missing preconditions" — instead of a
+// hand-written event per object type. New mechanics become new rows, not new event code.
+export function interactables(level) {
+  const items = level.coins.map((c, i) => ({
+    id: `coin-${i}`, label: `金币@x=${Math.round(c.x)}`, effect: '吃到金币',
+    hint: '金币要身体碰到才算，从它上方跳过吃不到',
+    inside: a => Math.abs(a.x - c.x) < 22 && Math.abs(a.y - 12 - c.y) < 26,
+    near: a => !a.grounded && Math.abs(a.x - c.x) < 20 && (a.y - 12) < c.y - 14 && (a.y - 12) > c.y - 96,
+    done: bag => bag.coins.includes(i), needs: () => [],
+  }));
+  if (level.coop) {
+    for (const [i, plate] of level.coop.plates.entries()) items.push({
+      id: `plate-${i}`, label: `压力板@x=${Math.round(plate.x)}`, effect: '开门',
+      hint: '门只有在两块压力板被同时踩住的那一刻才永久打开，一块踩住不够',
+      inside: a => Math.abs(a.x - plate.x) < 22 && Math.abs(a.y - 12 - plate.y) < 26,
+      near: a => !a.grounded && Math.abs(a.x - plate.x) < 20 && (a.y - 12) < plate.y - 14 && (a.y - 12) > plate.y - 96,
+      done: () => false, needs: () => [],
+    });
+  } else {
+    items.push({
+      id: 'switch', label: `机关@x=${Math.round(level.switch.x)}`, effect: '踩开机关（门才会开）',
+      hint: '机关要带着钥匙、落在上面的地面上才踩得开，从上方飞过不算',
+      inside: a => Math.abs(a.x - level.switch.x) < 22 && Math.abs(a.y - 12 - level.switch.y) < 26,
+      near: a => !a.grounded && Math.abs(a.x - level.switch.x) < 20 && (a.y - 12) < level.switch.y - 14 && (a.y - 12) > level.switch.y - 96,
+      done: bag => bag.switchOn, needs: bag => bag.key ? [] : ['先取得钥匙'],
+    });
+    items.push({
+      id: 'door', label: `关着的门@x=${Math.round(level.door.x)}`, effect: '通过',
+      hint: '被门挡住是机关没开的问题，不是跳的问题——回头踩机关',
+      inside: () => false,
+      near: () => false,
+      done: bag => bag.switchOn, needs: () => ['先踩开机关'],
+      blocked: (a, ctx) => ctx.move !== 0 && Math.abs(a.x - ctx.prevX) < 1 && Math.abs(a.x - level.door.x) < 20,
+    });
+  }
+  items.push({
+    id: 'goal', label: `终点@x=${Math.round(level.goal.x)}`, effect: '通关',
+    hint: '',
+    inside: a => Math.abs(a.x - level.goal.x) < 24 && Math.abs(a.y - level.goal.y) < 28,
+    near: () => false,
+    done: (bag, a, p) => p.won === true,
+    needs: bag => [
+      ...(bag.key ? [] : ['取得钥匙']),
+      ...(bag.switchOn ? [] : [level.coop ? '两块压力板同时踩住开门' : '踩开机关']),
+      ...(bag.coins.length >= level.coins.length ? [] : [`吃齐金币（还差 ${level.coins.length - bag.coins.length} 枚）`]),
+    ],
+  });
+  return items;
+}
+// Generic near-miss attribution: for every interactable whose effect has NOT fired,
+// explain why when the actor is inside its region (missing preconditions) or passing by
+// without triggering it (near-miss). ctx = { prevX, move } for blocked-movement detection.
+// Returns [{ id, msg }] — the caller dedupes per attempt by id.
+export function attributeAttempt(a, level, bag, p, ctx = {}) {
+  const out = [];
+  for (const it of interactables(level)) {
+    if (it.done(bag, a, p)) continue;
+    const missing = it.needs(bag);
+    if (it.blocked ? it.blocked(a, ctx) : it.inside(a)) {
+      // Inside the region with all preconditions met means the effect fires this very
+      // frame — that is a success in progress, not a near-miss. Only unmet preconditions
+      // are worth an event.
+      if (missing.length) out.push({ id: it.id, msg: `到了${it.label}但没能${it.effect}：还缺 ${missing.join('、')}` });
+    } else if (it.near(a)) {
+      out.push({ id: it.id, msg: `从${it.label}附近经过但${it.effect}没发生（${it.hint}）` });
+    }
+  }
+  return out;
+}
 export function validateActions(raw, maxFrames = 240) {
   if (!Array.isArray(raw) || !raw.length || raw.length > 12) throw new Error('动作应为 1–12 段');
   let total = 0;

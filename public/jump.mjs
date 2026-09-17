@@ -1,4 +1,4 @@
-import { actor, step, progress as freshProgress, worldProgress, latchPlates, replayActions, validateLevel, validateActions, PHYSICS } from './jump-world.mjs';
+import { actor, step, progress as freshProgress, worldProgress, latchPlates, replayActions, validateLevel, validateActions, attributeAttempt, PHYSICS } from './jump-world.mjs';
 import { labWorld, experimentBattery, runExperiment, roleInputToChannels, channelInput, summarizeNotebook, scorePrediction, scoreLessonPrediction, sameSpotStreak, stallStreak, scorePriorGuesses, hiddenTruth, validateChannelActions, MAX_TRACES, LAB_PLAN_TARGET, MAX_LOG, logLine, summarizeKnowledge } from './jump-lab.mjs';
 import { STAGES, stageLevel, stageInfo, nextStage, unlockAfter, stagePickerState } from './jump-stages.mjs';
 import { defaultAppearance, validateAppearance, petDisplayName } from '/shared/pet.mjs';
@@ -59,17 +59,16 @@ let attemptEvents = [];
 // Anchors, measured by the engine frame by frame — never guessed by the model: where the pet
 // was last grounded (the real take-off spot) and where it fell. Reflections and the engine
 // experiment anchor on THESE, which is what keeps learned rules grounded in fact.
-let attemptTakeOff = null, attemptFellAt = null;
+let attemptTakeOff = null, attemptFellAt = null, attemptFlags = new Set();
+function pushAttemptEvent(id, msg) { if (attemptFlags.has(id)) return; attemptFlags.add(id); attemptEvents.push(msg); }
 function noteAttemptEvents(before) {
   const at = o => `@x=${Math.round(o.x)}`;
   if (!before.key && progress.key) attemptEvents.push(`取得钥匙${at(level.key)}`);
   if (!before.switchOn && progress.switchOn) attemptEvents.push(`踩下机关${at(level.switch)}（门开了）`);
   for (const i of progress.coins) if (!before.coins.includes(i)) attemptEvents.push(`捡到金币${at(level.coins[i])}`);
-  if (!progress.switchOn && !before.nearSwitchAirborne && Math.abs(pet.x - level.switch.x) < 22 && Math.abs(pet.y - 12 - level.switch.y) < 26 && !pet.grounded)
-    attemptEvents.push(`从机关上方飞过但没落地踩到${at(level.switch)}`), before.nearSwitchAirborne = true;
-  const input = queue[0];
-  if (!progress.switchOn && !before.doorBlocked && input?.move && Math.abs(pet.x - before.x) < 1 && Math.abs(pet.x - level.door.x) < 20)
-    attemptEvents.push(`被关着的门挡住${at(level.door)}（机关未开）`), before.doorBlocked = true;
+  // Near-misses are attributed by ONE generic engine rule (entered the region / passed by,
+  // but the effect did not fire, and which preconditions are missing) — not per-object code.
+  for (const ev of attributeAttempt(pet, level, coopShared || progress, progress, { prevX: before.x, move: queue[0]?.move || 0 })) pushAttemptEvent(ev.id, ev.msg);
 }
 function recordAttempt() {
   if (!planActions.length) return;
@@ -79,7 +78,7 @@ function recordAttempt() {
     ...(attemptTakeOff ? { takeOff: { x: Math.round(attemptTakeOff.x), y: Math.round(attemptTakeOff.y) } } : {}),
     ...(attemptFellAt != null ? { fellAt: attemptFellAt } : {}),
     ...(attemptEvents.length ? { events: [...attemptEvents] } : {}) }].slice(-8);
-  planActions = []; attemptEvents = []; attemptTakeOff = null; attemptFellAt = null;
+  planActions = []; attemptEvents = []; attemptTakeOff = null; attemptFellAt = null; attemptFlags = new Set();
   logEvent('attempt', `第 ${attempts.length} 次尝试：x=${Math.round(planStart.x)} → x=${Math.round(pet.x)}（${outcome === 'fell' ? '掉下去了' : outcome === 'won' ? '通关' : '还活着'}）${attempts[attempts.length - 1].events ? `，事件：${attempts[attempts.length - 1].events.join('；')}` : ''}，动作 ${describeActions(attempts[attempts.length - 1].actions, false)}`);
 }
 // Demonstrations and failed attempts become rules, not just replayable clips.
@@ -338,7 +337,7 @@ function adoptPlan(result, learning) {
   planStart = { ...pet };
   queue = (learning ? validateChannelActions(result.actions) : validateActions(result.actions, 360)).map(a => ({ ...a }));
   planActions = learning ? [] : queue.map(a => ({ ...a }));
-  attemptEvents = []; attemptTakeOff = null; attemptFellAt = null;
+  attemptEvents = []; attemptTakeOff = null; attemptFellAt = null; attemptFlags = new Set();
   if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
   const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }

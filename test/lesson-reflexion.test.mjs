@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { starterLevel, actor, progress } from '../public/jump-world.mjs';
+import { starterLevel, actor, progress, validateLevel } from '../public/jump-world.mjs';
 import { stageLevel } from '../public/jump-stages.mjs';
 import { lessonPrediction, scoreLessonPrediction, sameSpotStreak, stallStreak } from '../public/jump-lab.mjs';
 import { planJump, learnJumpLesson, holdExperiment } from '../server/jump-model.mjs';
@@ -141,4 +141,22 @@ test('the engine experiment anchors on the measured take-off spot, not the segme
   assert.equal(user.engineExperiment.from.x, 400, 'the probe runs from the real take-off spot, not from x=48');
   assert.equal(user.attempts[0].takeOff.x, 400, 'the take-off anchor is in the episodic card');
   assert.equal(user.attempts[0].fellAt, 470, 'the fall position is in the episodic card');
+});
+
+test('hold experiment bisects between the longest safe hold and the first fatal one', () => {
+  // Solid platform, then a real gap: from x=140 a 1-frame hop stays on the platform,
+  // a 10-frame jump carries into the gap — the executable boundary hides between them.
+  const level = validateLevel({ version: 2, width: 800, spawn: { x: 48, y: 400 },
+    platforms: [{ x: 0, y: 400, w: 208 }, { x: 400, y: 400, w: 400 }],
+    coins: [{ x: 80, y: 388 }], key: { x: 120, y: 388 }, switch: { x: 150, y: 388 },
+    door: { x: 600, y: 320, h: 96 }, goal: { x: 700, y: 388 } });
+  const rows = holdExperiment(level, { x: 140, y: 400, vy: 0, grounded: true });
+  const coarse = rows.filter(r => [1, 10, 20, 30, 45, 60].includes(r.holdFrames) && r.move === 1);
+  assert.ok(coarse.find(r => r.holdFrames === 1 && !r.dead), 'premise: a tap is safe here');
+  assert.ok(coarse.find(r => r.holdFrames === 10 && r.dead), 'premise: a held jump is fatal here');
+  assert.ok(rows.some(r => r.holdFrames > 1 && r.holdFrames < 10), 'bisection probes the gap between 1 and 10');
+  const safe = rows.find(r => r.note === '最长安全按住'), fatal = rows.find(r => r.note === '再长就摔死');
+  assert.ok(safe && fatal, 'the executable boundary is annotated');
+  assert.equal(fatal.holdFrames, safe.holdFrames + 1, 'the boundary is exact to one frame');
+  assert.ok(!safe.dead && fatal.dead);
 });

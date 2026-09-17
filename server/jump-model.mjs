@@ -45,6 +45,8 @@ function attemptsInput(raw, level) {
 export const LESSON_SYSTEM = (screen, knowledge, coop = false) => `你是一个横版游戏里的小精灵，你要自己打通这一关。你只能按键，不能改坐标、金币或门。
 下面这张字符地图就是你看到的画面，每格 16 像素，一行一行从上往下，最下面一行是画面底部；${screen.legend}。
 你能按的键只有三个：向左、向右、跳。跳要在落地时按下才起跳，按住越久跳得越远。
+progress 是你的进度：coins=已经吃到的金币编号列表，key=有没有钥匙，switchOn=机关开了没，won=通关了没。通关要同时满足四件事：拿到钥匙、踩开机关、吃齐全部金币、走到终点 G，缺一不可——到了终点没通关，尝试记录里会有事件写明缺哪一样，照着补。
+engineCalibration（落地时才有）是引擎从你当前位置实测的跳跃标定表：按住跳 N 帧（全程按右）会落在哪、会不会摔，已用二分法细测并标注「最长安全按住」「再长就摔死」。这是物理事实，选跳跃帧数时以它为准，不要凭感觉猜。
 ${coop ? `这一关是配合关，规则和普通关不同：金币和钥匙是你和主人（地图上的 H）共有的，谁捡到都算；关着的门 D 只有在两块压力板 P 被同时踩住的那一刻才会永久打开——你一个人踩不住两块，需要和 H 各踩一块（踩着不动就是 {move:0,jump:false}）；门开后你们各自都要走到终点 G 才算通关。H 的位置和是否已到终点在输入的 partner 里。` : ''}
 输出一段完整的动作序列：JSON {actions:[{move:-1或0或1,jump:boolean,frames:1到90}],prediction:{xMin:像素,xMax:像素,dead:boolean},goal:"这一步想干什么",plan:"一句话说明你打算怎么过这一关",usedDemonstrations:[参考过的示范id],usedNotes:[参考过的知识id]}。
 prediction 是你对这段动作结束时结果的预测：脚底横坐标落在 xMin 到 xMax 之间，dead 表示你认为它会摔死。引擎会按真实结果给预测打分，预测落空说明你对这一关的判断有误。
@@ -83,10 +85,15 @@ export async function planJump(brain, input, { signal } = {}) {
   const partner = level.coop && input.partner && Number.isFinite(input.partner.x) && Number.isFinite(input.partner.y)
     ? { x: input.partner.x, y: input.partner.y, dead: input.partner.dead === true, won: input.partner.won === true } : null;
   const screen = tileMap(level, actor, { ...progressNow, key: progressNow.key, switchOn: progressNow.switchOn }, { partner });
+  // Calibration oracle: when the pet is standing, answer "hold jump N frames → land where?"
+  // from its EXACT position with real physics, every decision — grounding symbolic rules
+  // ("land left of x=489") into executable parameters ("hold 4 frames") at zero token cost.
+  const calibration = actor.grounded ? { from: { x: Math.round(actor.x), y: Math.round(actor.y) }, rows: holdExperiment(level, actor, progressNow) } : null;
   const attempts = attemptsInput(input.attempts, level);
   const knowledge = notebookInput(input.knowledge);
   const observed = { screen: { legend: screen.legend, rows: screen.rows }, pet: actor, progress: progressNow,
-    attempts, demonstrations, knowledge: summarizeNotebook(knowledge), note: text(input.note), ...(partner ? { partner } : {}) };
+    attempts, demonstrations, knowledge: summarizeNotebook(knowledge), note: text(input.note),
+    ...(calibration ? { engineCalibration: calibration } : {}), ...(partner ? { partner } : {}) };
   const started = Date.now();
   const raw = await ask(brain, [
     { role: 'system', content: LESSON_SYSTEM(screen, summarizeNotebook(knowledge), !!level.coop) },
@@ -120,7 +127,25 @@ export function holdExperiment(level, from, prog) {
     }
     return { holdFrames: hold, move, landingX: Math.round(a.x), traveled: Math.round(a.x - from.x), dead: a.dead === true, frames };
   };
-  const rows = [1, 10, 20, 30, 45, 60].map(hold => probe(hold, 1));
+  const coarse = [1, 10, 20, 30, 45, 60].map(hold => probe(hold, 1));
+  // The actionable answer usually hides BETWEEN the coarse probes (1帧 safe, 10帧 dead →
+  // what about 4?). Bisect between the longest safe hold and the first fatal one, the same
+  // way a player calibrates. Any "max safe parameter" question is this one generic search.
+  let safe = null, fatal = null;
+  for (const r of coarse) { if (!r.dead) safe = r; else { fatal = r; break; } }
+  const extra = [];
+  if (safe && fatal) {
+    let lo = safe.holdFrames, hi = fatal.holdFrames;
+    while (hi - lo > 1 && extra.length < 6) {
+      const mid = Math.floor((lo + hi) / 2);
+      const r = probe(mid, 1);
+      extra.push(r);
+      if (r.dead) hi = mid; else lo = mid;
+    }
+    const mark = (hold, note) => { const r = [...coarse, ...extra].find(x => x.holdFrames === hold); if (r && !r.note) r.note = note; };
+    mark(lo, '最长安全按住'); mark(hi, '再长就摔死');
+  }
+  const rows = [...coarse, ...extra].sort((a, b) => a.holdFrames - b.holdFrames);
   // The contrast row is the lesson: the same long hold with no direction key barely moves —
   // horizontal travel comes from holding the direction DURING the flight, not after landing.
   rows.push({ ...probe(45, 0), note: '对照：同样按住跳 45 帧但不按方向键' });
@@ -156,7 +181,7 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   const screen = tileMap(level, actor(level.spawn), { coins: experimentProgress.coins, key: experimentProgress.key, switchOn: experimentProgress.switchOn });
   const started = Date.now();
   const raw = await ask(brain, [
-    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它真实起跳点向右，按住跳跃 1/10/20/30/45/60 帧分别跳多远、会不会摔。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断。tryNext 从精灵当前位置开始执行——如果关键动作发生在别处（比如要从 x=432 起跳），必须先包含走到那个位置的助跑段。重复旧做法没有意义。` : ''}
+    { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它真实起跳点向右，按住跳跃不同帧数分别跳多远、会不会摔（含二分细测，标注了「最长安全按住」「再长就摔死」——这是能直接执行的帧数边界）。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断。tryNext 从精灵当前位置开始执行——如果关键动作发生在别处（比如要从 x=432 起跳），必须先包含走到那个位置的助跑段。重复旧做法没有意义。` : ''}
 - 只写地图和记录里能直接支持的东西：多远要起跳、按多久能跳多远、哪里掉下去过、金币/钥匙/门/机关各自是什么反应。
 - **位置只能引用 attempts 里的 takeOff（真实起跳点）和 fellAt（摔落点）精确坐标、或引擎实验的数字；严禁从动作梗概推算位置**——猜出来的位置会把规则教错。描述一次失败时，先核对它到底从哪里起跳。
 - 每条给出 evidence：**必须**填列表里真实出现的尝试 id（attempt-1、attempt-2…）或示范 id；填了才会被系统按证据计数升级，不填的只会停在「猜想」。

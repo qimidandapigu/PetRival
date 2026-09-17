@@ -67,7 +67,7 @@ test('attempt cards record causal events: pickups and the closed door blocking t
  const card=f.api.get().attempts[0];
  assert.ok(card,'the finished segment was recorded');
  assert.ok(card.events.some(e=>e.includes('捡到金币')),'the coin pickup is in the card: '+JSON.stringify(card.events));
- assert.ok(card.events.some(e=>e.includes('被关着的门挡住')),'the closed-door block is in the card: '+JSON.stringify(card.events));
+ assert.ok(card.events.some(e=>e.includes('门')&&e.includes('先踩开机关')),'the closed-door block is attributed to the switch: '+JSON.stringify(card.events));
 });
 
 test('reflections split rules into a cross-stage handbook and per-stage notes',async()=>{
