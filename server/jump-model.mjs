@@ -16,7 +16,7 @@ export async function ask(brain, messages, options) {
   // Low-effort thinking stays on so the reasoning can be logged and analysed; the reasoning
   // tokens share the max_tokens budget, so it sits above the plain-JSON needs.
   try { return await brain.json(messages, { maxTokens: 4096, playEffort: 'low', timeoutMs: 90000, ...options }); }
-  catch { throw error('模型调用中断或暂不可用，请稍后重试。你的示范和当前关卡仍保留。', 503); }
+  catch (e) { console.warn(`[jump] 模型调用失败：${e?.code || e?.name || ''} ${e?.message || e}${e?.upstreamStatus ? `（上游 ${e.upstreamStatus}）` : ''}`); throw error('模型调用中断或暂不可用，请稍后重试。你的示范和当前关卡仍保留。', 503); }
 }
 // Compact rendering of an action sequence: 右跳30帧 = hold right+jump for 30 frames.
 function actionSummary(actions) {
