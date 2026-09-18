@@ -70,7 +70,7 @@ export class PetBrain {
       this[queueKey].push(waiter);
     });
   }
-  async json(messages, { signal, timeoutMs = 240000, lane = 'foreground', maxTokens = 16384, thinking, reasoningEffort, playEffort = this.playEffort } = {}) {
+  async json(messages, { signal, timeoutMs = 240000, lane = 'foreground', maxTokens = 16384, thinking, reasoningEffort, playEffort = this.playEffort, onReasoning } = {}) {
     if (this.closed) throw new Error('服务已停止');
     if (!['foreground', 'preparation'].includes(lane)) throw new Error('未知模型任务类型');
     if (!['high', 'low', 'none'].includes(playEffort)) throw new Error('未知思考档位');
@@ -97,6 +97,8 @@ export class PetBrain {
         body = await response.json();
       } catch (error) { combined.throwIfAborted(); if (error instanceof ProviderUnavailable) throw error; throw new ProviderUnavailable('模型服务暂时不可用', { code: 'model_transport_error' }); }
       const content = body.choices?.[0]?.message?.content;
+      const reasoning = body.choices?.[0]?.message?.reasoning_content;
+      if (typeof reasoning === 'string' && reasoning.trim() && typeof onReasoning === 'function') onReasoning(reasoning);
       if (typeof content !== 'string' || content.length > 20000) throw new Error('模型没有返回有效的 JSON 内容');
       return JSON.parse(content.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
     } finally {

@@ -13,7 +13,9 @@ function progress(raw, level) {
   return { coins: [...new Set((Array.isArray(raw?.coins) ? raw.coins : []).filter(i => Number.isInteger(i) && i >= 0 && i < level.coins.length))], key: raw?.key === true, switchOn: raw?.switchOn === true, won: raw?.won === true };
 }
 export async function ask(brain, messages, options) {
-  try { return await brain.json(messages, { maxTokens: 2400, playEffort: 'none', thinking: 'disabled', timeoutMs: 90000, ...options }); }
+  // Low-effort thinking stays on so the reasoning can be logged and analysed; the reasoning
+  // tokens share the max_tokens budget, so it sits above the plain-JSON needs.
+  try { return await brain.json(messages, { maxTokens: 4096, playEffort: 'low', timeoutMs: 90000, ...options }); }
   catch { throw error('模型调用中断或暂不可用，请稍后重试。你的示范和当前关卡仍保留。', 503); }
 }
 // Compact rendering of an action sequence: 右跳30帧 = hold right+jump for 30 frames.
@@ -96,14 +98,16 @@ export async function planJump(brain, input, { signal } = {}) {
     attempts, demonstrations, knowledge: summarizeNotebook(knowledge), note: text(input.note),
     ...(calibration ? { engineCalibration: calibration } : {}), ...(partner ? { partner } : {}) };
   const started = Date.now();
+  let thinking = '';
   const raw = await ask(brain, [
     { role: 'system', content: LESSON_SYSTEM(screen, summarizeNotebook(knowledge), !!level.coop) },
     { role: 'user', content: JSON.stringify(observed) },
-  ], { signal });
+  ], { signal, onReasoning: r => { thinking = r; } });
   let fitted; try { fitted = fitActions(raw?.actions); } catch { throw error('模型给出了无效动作，已暂停；请重试。', 503); }
   const actions = fitted.actions;
   const prediction = lessonPrediction(raw?.prediction, level);
   return { method: 'model', model: brain.info().model, actions, prediction, goal: text(raw.goal, 160), plan: text(raw.plan, 240), trimmedFrames: fitted.trimmed,
+    thinking: text(thinking, 2000),
     attemptsProvided: attempts.length,
     usedDemonstrations: (Array.isArray(raw.usedDemonstrations) ? raw.usedDemonstrations : []).filter(id => demonstrations.some(d => d.id === id)),
     usedNotes: (Array.isArray(raw.usedNotes) ? raw.usedNotes : []).map(String).filter(id => knowledge.some(n => n.id === id)),
@@ -186,6 +190,7 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   const screen = tileMap(level, actor(level.spawn), { coins: experimentProgress.coins, key: experimentProgress.key, switchOn: experimentProgress.switchOn });
   const stallN = Number(trigger.match(/连续\s*(\d+)\s*次/)?.[1] || 0);
   const started = Date.now();
+  let thinking = '';
   const raw = await ask(brain, [
     { role: 'system', content: `下面是一关的地图，以及小精灵自己的尝试记录和主人录的示范。请把它们总结成**这一关的规则**，供它下次行动时使用。${trigger ? `\n这次总结是自动触发的：${trigger}。优先解释并解决这个具体问题。` : ''}${experiment ? `\n输入里附了一次真实引擎实验（engineExperiment）：从它真实起跳点向右，按住跳跃不同帧数分别跳多远、会不会摔（含二分细测，标注了「最长安全按住」「再长就摔死」——这是能直接执行的帧数边界）。这是真实物理数据，如果和尝试记录里体现的判断冲突，以实验为准，并用它修正规则。\n还必须给出 tryNext：一个**从未在 attempts 里出现过**的动作变体（最多 6 段、共 120 帧以内），用来验证你对卡住原因的新判断。tryNext 从精灵当前位置开始执行——如果关键动作发生在别处（比如要从 x=432 起跳），必须先包含走到那个位置的助跑段。重复旧做法没有意义。${stallN >= 4 ? `
 已连续卡死 ${stallN} 次：局部变体不够了。tryNext 必须战略性改变——向左后撤到空旷或低位区域再组织进攻，或转向尚未完成的目标物（没收的金币、钥匙、机关），不要再向右硬冲同一个位置。` : ''}` : ''}
@@ -199,7 +204,7 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
 输出 JSON {ops:[{id:"短id",claim:"一条规则",state:"猜想|观察|已推翻",scope:"通用|这一关",evidence:["id"],confidence:0.5}],note:"一句话"${experiment ? ',tryNext:[{move:-1或0或1,jump:boolean,frames:1到90}]' : ''}}，最多 6 条。` },
     { role: 'user', content: JSON.stringify({ screen: { legend: screen.legend, rows: screen.rows }, attempts, demonstrations,
       knowledge: summarizeNotebook(knowledge), ...(experiment ? { engineExperiment: experiment } : {}) }) },
-  ], { signal });
+  ], { signal, onReasoning: r => { thinking = r; } });
   // Every attempt carries an id so the model can cite it: without citable ids nothing can
   // ever reach 确认 and the knowledge stays permanently unproven.
   const evidenceIds = [...attempts.map(a => a.id), ...demonstrations.map(d => d.id)];
@@ -212,6 +217,7 @@ export async function learnJumpLesson(brain, input, { signal } = {}) {
   if (experiment) { try { tryActions = fitActions(raw?.tryNext, 120).actions.slice(0, 6); } catch { tryActions = null; } }
   return { method: 'model', model: brain.info().model, knowledge: reduced.notebook, adjusted: reduced.adjusted,
     confirmed: reduced.confirmed, learned: Math.max(0, reduced.notebook.length - knowledge.length), note: text(raw?.note, 160),
+    thinking: text(thinking, 2000),
     ...(experiment ? { experiment: experiment.rows, tryActions } : {}),
     attempts: attempts.length, demonstrations: demonstrations.length, latencyMs: Date.now() - started };
 }
@@ -317,10 +323,12 @@ export async function planJumpLab(brain, input, { signal } = {}) {
     progress: progress(input?.progress, level), notebook: summarizeNotebook(notebook),
     lastResult: text(input?.feedback, 300), teacherNote: text(input?.note, 200) };
   const started = Date.now();
-  const raw = await ask(brain, [{ role: 'system', content: LAB_SYSTEM }, { role: 'user', content: JSON.stringify(observed) }], { signal });
+  let thinking = '';
+  const raw = await ask(brain, [{ role: 'system', content: LAB_SYSTEM }, { role: 'user', content: JSON.stringify(observed) }], { signal, onReasoning: r => { thinking = r; } });
   let actions; try { actions = validateChannelActions(raw?.actions); } catch { throw error('模型给出了无效动作，已暂停；请重试。', 503); }
   let prediction = null; try { prediction = validatePrediction(raw?.prediction); } catch { prediction = null; }
   return { method: 'model', model: brain.info().model, actions, prediction, goal: text(raw?.goal, 160),
+    thinking: text(thinking, 2000),
     usedNotes: (Array.isArray(raw?.usedNotes) ? raw.usedNotes : []).map(String).filter(id => notebook.some(n => n.id === id)),
     notesProvided: notebook.length, unconfirmed: notebook.filter(n => n.state !== '确认').length, latencyMs: Date.now() - started };
 }

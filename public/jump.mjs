@@ -113,6 +113,7 @@ async function learnLesson(trigger = '') {
       logEvent('learn', '复盘得出了新规则，按旧认识预取的复活段已丢弃，复活后会用新规则重新决策');
     }
     logEvent('learn', `总结完成：新增 ${result.learned} 条规则、确认 ${result.confirmed} 条${result.adjusted.length ? `、${result.adjusted.length} 条被按证据降级` : ''}`);
+    if (result.thinking) logEvent('think', `复盘的思考过程：${result.thinking}`);
     for (const note of reduced.slice(-3)) logEvent('learn', `规则【${note.state}·${note.scope}】${note.claim}（证据 ${note.evidence.length} 条）`);
     if (Array.isArray(result.experiment)) logEvent('learn', `引擎实验（从上次起跳点向右跳）：${result.experiment.filter(r => !r.error).map(r => `按住 ${r.holdFrames} 帧→${r.dead ? '摔死' : `跳出 ${r.traveled}px`}`).join('；')}`);
     // The reflection must change what it does next, not only what it knows: a proposed
@@ -176,8 +177,8 @@ function flushLogs() {
   api('/api/log/client', { page: 'jump', entries }).catch(() => { logOutbox.unshift(...entries.slice(-10)); });
 }
 function shipLog(kind, text) {
-  logOutbox.push({ at: Date.now(), kind, text: String(text).slice(0, 500) });
-  if (logOutbox.length >= 10 || ['fall', 'win', 'learn', 'error'].includes(kind) || typeof setTimeout !== 'function') flushLogs();
+  logOutbox.push({ at: Date.now(), kind, text: String(text).slice(0, kind === 'think' ? 2000 : 500) });
+  if (logOutbox.length >= 10 || ['fall', 'win', 'learn', 'error', 'think'].includes(kind) || typeof setTimeout !== 'function') flushLogs();
   else if (!logTimer) logTimer = setTimeout(flushLogs, 3000);
 }
 function logEvent(kind, text) {
@@ -344,6 +345,7 @@ function adoptPlan(result, learning) {
   planActions = learning ? [] : queue.map(a => ({ ...a }));
   attemptEvents = []; attemptTakeOff = null; attemptFellAt = null; attemptFlags = new Set();
   if (result.plan) logEvent('plan', `它打算这么过这一关：${result.plan}`);
+  if (result.thinking) logEvent('think', `决策的思考过程：${result.thinking}`);
   const injected = learning
       ? { lines: [`手册 ${result.notesProvided} 条（未确认 ${result.unconfirmed}）`], bytes: 0 }
       : { lines: [`未蒸馏示范 ${freshSamples().length} 条（共 ${samples.length} 条）`, `备注 ${$('#teacher-note').value ? '1 句' : '无'}`, `上次结果 ${feedback ? '1 条' : '无'}`], bytes: 0 };

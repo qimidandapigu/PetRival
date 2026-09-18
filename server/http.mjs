@@ -130,7 +130,7 @@ export function createApp({ dataDir = resolve(root, 'data'), env = process.env, 
         rate(`clientlog:${owner}`, 60);
         const page = typeof input.page === 'string' ? input.page.slice(0, 40) : 'unknown';
         const entries = (Array.isArray(input.entries) ? input.entries : []).slice(-30)
-          .map(e => ({ at: Math.round(Number(e?.at)) || now(), kind: String(e?.kind || '').slice(0, 20), text: String(e?.text || '').slice(0, 500) }))
+          .map(e => ({ at: Math.round(Number(e?.at)) || now(), kind: String(e?.kind || '').slice(0, 20), text: String(e?.text || '').slice(0, e?.kind === 'think' ? 2000 : 500) }))
           .filter(e => e.kind && e.text);
         if (entries.length) {
           await mkdir(dataDir, { recursive: true });
